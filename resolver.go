@@ -48,10 +48,9 @@ func (r *kubeResolver) Resolve(target string) (naming.Watcher, error) {
 		defer resp.Body.Close()
 		return nil, fmt.Errorf("invalid response code")
 	}
-	sw := newStreamWatcher(resp.Body)
 	w := &Watcher{
 		target:          r.target,
-		watcher:         sw,
+		watcher:         newStreamWatcher(resp.Body),
 		endpoints:       make(map[string]interface{}),
 		done:            make(chan struct{}),
 		result:          make(chan watchResult),

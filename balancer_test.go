@@ -129,7 +129,7 @@ func TestConnection(t *testing.T) {
 	clientCrtFile := os.Getenv("TEST_K8S_CLIENT_CRT")
 	clientKeyFile := os.Getenv("TEST_K8S_CLIENT_KEY")
 	apiHost := os.Getenv("TEST_K8S_API_HOST")
-	if len(caCrtFile) == "" || len(clientCrtFile) == "" || len(clientKeyFile) == "" || len(apiHost) == "" {
+	if len(caCrtFile) == 0 || len(clientCrtFile) == 0 || len(clientKeyFile) == 0 || len(apiHost) == 0 {
 		t.Fatal("")
 	}
 	ca, err := ioutil.ReadFile(caCrtFile)

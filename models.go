@@ -1,6 +1,17 @@
 package kuberesolver
 
+type EventType string
+
+const (
+	Added    EventType = "ADDED"
+	Modified EventType = "MODIFIED"
+	Deleted  EventType = "DELETED"
+	Error    EventType = "ERROR"
+)
+
+// Event represents a single event to a watched resource.
 type Event struct {
+	Type   EventType `json:"type"`
 	Object Endpoints `json:"object"`
 }
 

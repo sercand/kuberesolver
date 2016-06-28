@@ -2,9 +2,8 @@ package kuberesolver
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
-	"net/url"
-	"strings"
 	"sync"
 
 	"google.golang.org/grpc/grpclog"
@@ -35,9 +34,8 @@ type watchInterface interface {
 	ResultChan() <-chan Event
 }
 
-// Decoder implements the watch.Decoder interface for io.ReadClosers that
+// JSONDecoder implements the Decoder interface for io.ReadClosers that
 // have contents which consist of a series of watchEvent objects encoded via JSON.
-// It will decode any object registered in the supplied codec.
 type JSONDecoder struct {
 	r       io.ReadCloser
 	decoder *json.Decoder
@@ -58,24 +56,30 @@ func (d *JSONDecoder) Decode() (Event, error) {
 	if err := d.decoder.Decode(&got); err != nil {
 		return Event{}, err
 	}
-	return got, nil
+	switch got.Type {
+	case Added, Modified, Deleted, Error:
+		return got, nil
+	default:
+		return Event{}, fmt.Errorf("got invalid watch event type: %v", got.Type)
+	}
 }
 
 // Close closes the underlying r.
 func (d *JSONDecoder) Close() {
+	grpclog.Printf("kuberesolver/stream.go: streamWatcher Close")
 	d.r.Close()
 }
 
 // StreamWatcher turns any stream for which you can write a Decoder interface
 // into a watch.Interface.
 type streamWatcher struct {
-	source  decoder
-	result  chan Event
+	source decoder
+	result chan Event
 	sync.Mutex
 	stopped bool
 }
 
-// NewStreamWatcher creates a StreamWatcher from the given decoder.
+// NewStreamWatcher creates a StreamWatcher from the given io.ReadClosers.
 func newStreamWatcher(r io.ReadCloser) watchInterface {
 	sw := &streamWatcher{
 		source: newDecoder(r),
@@ -96,6 +100,7 @@ func (sw *streamWatcher) ResultChan() <-chan Event {
 // Stop implements Interface.
 func (sw *streamWatcher) Stop() {
 	// Call Close() exactly once by locking and setting a flag.
+	grpclog.Printf("kuberesolver/stream.go: streamWatcher Stop")
 	sw.Lock()
 	defer sw.Unlock()
 	if !sw.stopped {
@@ -111,29 +116,6 @@ func (sw *streamWatcher) stopping() bool {
 	return sw.stopped
 }
 
-// IsProbableEOF returns true if the given error resembles a connection termination
-// scenario that would justify assuming that the watch is empty.
-// These errors are what the Go http stack returns back to us which are general
-// connection closure errors (strongly correlated) and callers that need to
-// differentiate probable errors in connection behavior between normal "this is
-// disconnected" should use the method.
-func isProbableEOF(err error) bool {
-	if uerr, ok := err.(*url.Error); ok {
-		err = uerr.Err
-	}
-	switch {
-	case err == io.EOF:
-		return true
-	case err.Error() == "http: can't write HTTP request on broken connection":
-		return true
-	case strings.Contains(err.Error(), "connection reset by peer"):
-		return true
-	case strings.Contains(strings.ToLower(err.Error()), "use of closed network connection"):
-		return true
-	}
-	return false
-}
-
 // receive reads result from the decoder in a loop and sends down the result channel.
 func (sw *streamWatcher) receive() {
 	defer close(sw.result)
@@ -147,16 +129,12 @@ func (sw *streamWatcher) receive() {
 			}
 			switch err {
 			case io.EOF:
-			// watch closed normally
+				// watch closed normally
+				grpclog.Printf("kuberesolver/stream.go: Watch closed normally")
 			case io.ErrUnexpectedEOF:
 				grpclog.Printf("kuberesolver/stream.go: Unexpected EOF during watch stream event decoding: %v", err)
 			default:
-				msg := "kuberesolver/stream.go: Unable to decode an event from the watch stream: %v"
-				if isProbableEOF(err) {
-					grpclog.Printf(msg, err)
-				} else {
-					grpclog.Printf(msg, err)
-				}
+				grpclog.Printf("kuberesolver/stream.go: Unable to decode an event from the watch stream: %v", err)
 			}
 			return
 		}

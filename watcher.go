@@ -39,6 +39,7 @@ func (w *Watcher) Next() ([]*naming.Update, error) {
 
 	select {
 	case <-w.done:
+		grpclog.Printf("kuberesolver/watcher.go: w.done channel")
 		return updates, nil
 	case r := <-w.watcher.ResultChan():
 		ep = r
