@@ -74,7 +74,7 @@ func (b *Balancer) Dial(target string, opts ...grpc.DialOption) (*grpc.ClientCon
 	}
 	switch pt.urlType {
 	case TargetTypeKubernetes:
-		grpclog.Printf("kuberesolver/balancer.go: using kubernetes resolver target=%s", pt.target)
+		grpclog.Printf("kuberesolver: using kubernetes resolver target=%s", pt.target)
 		rs := newResolver(b.client, b.Namespace, pt)
 		b.resolvers = append(b.resolvers, rs)
 		opts := append(opts, grpc.WithBalancer(grpc.RoundRobin(rs)))
@@ -100,7 +100,7 @@ func (b *Balancer) Healthy() error {
 func New() *Balancer {
 	client, err := newInClusterClient()
 	if err != nil {
-		grpclog.Printf("kuberesolver/balancer.go: failed to create in cluster client, err=%v", err)
+		grpclog.Printf("kuberesolver: failed to create in cluster client, err=%v", err)
 	}
 	return &Balancer{
 		Namespace: "default",
