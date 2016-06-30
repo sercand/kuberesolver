@@ -78,7 +78,6 @@ func (sw *streamWatcher) receive() {
 			switch err {
 			case io.EOF:
 				// watch closed normally
-				grpclog.Printf("kuberesolver: Watch closed normally")
 			case io.ErrUnexpectedEOF:
 				grpclog.Printf("kuberesolver: Unexpected EOF during watch stream event decoding: %v", err)
 			default:
