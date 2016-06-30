@@ -33,7 +33,7 @@ func (r *kubeResolver) Resolve(target string) (naming.Watcher, error) {
 	stopCh := make(chan struct{})
 
 	go Until(func() {
-		err := r.ResolveWrapper(target, stopCh, resultChan)
+		err := r.resolveWrapper(target, stopCh, resultChan)
 		grpclog.Printf("kuberesolver/resolve.go: ResolveWrapper ended with error=%v", err)
 	}, time.Second, stopCh)
 
@@ -47,7 +47,7 @@ func (r *kubeResolver) Resolve(target string) (naming.Watcher, error) {
 	return w, nil
 }
 
-func (r *kubeResolver) ResolveWrapper(target string, stopCh <-chan struct{}, resultCh chan<- watchResult) error {
+func (r *kubeResolver) resolveWrapper(target string, stopCh <-chan struct{}, resultCh chan<- watchResult) error {
 	u, err := url.Parse(fmt.Sprintf("%s/api/v1/watch/namespaces/%s/endpoints/%s",
 		r.k8sClient.host, r.namespace, target))
 	if err != nil {
@@ -55,9 +55,9 @@ func (r *kubeResolver) ResolveWrapper(target string, stopCh <-chan struct{}, res
 	}
 	// Calls to the Kubernetes endpoints watch API must include the resource
 	// version to ensure watches only return updates since the last watch.
-	q := u.Query()
-	q.Set("resourceVersion", r.resourceVersion)
-	u.RawQuery = q.Encode()
+	//	q := u.Query()
+	//	q.Set("resourceVersion", "0")
+	//u.RawQuery = q.Encode()
 
 	grpclog.Printf("kuberesolver/resolve.go: ResolveWrapper start url=%s", u.String())
 
@@ -72,8 +72,9 @@ func (r *kubeResolver) ResolveWrapper(target string, stopCh <-chan struct{}, res
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		return fmt.Errorf("invalid response code")
+		grpclog.Printf("kuberesolver/resolve.go: ResolveWrapper invalid response code=%d", resp.StatusCode)
+		//	defer resp.Body.Close()
+		//	return fmt.Errorf("invalid response code %d", resp.StatusCode)
 	}
 	sw := newStreamWatcher(resp.Body)
 	for {
@@ -83,7 +84,7 @@ func (r *kubeResolver) ResolveWrapper(target string, stopCh <-chan struct{}, res
 			return nil
 		case up, more := <-sw.ResultChan():
 			if more {
-				r.resourceVersion = up.Object.Metadata.ResourceVersion
+				//	r.resourceVersion = up.Object.Metadata.ResourceVersion
 				resultCh <- watchResult{err: nil, ep: &up}
 			} else {
 				grpclog.Printf("kuberesolver/resolver.go: ResolveWrapper stop ResultChan")
