@@ -38,7 +38,6 @@ func (w *Watcher) Next() ([]*naming.Update, error) {
 
 	select {
 	case <-w.stopCh:
-		grpclog.Printf("kuberesolver/watcher.go: w.stopCh channel")
 		w.Lock()
 		if !w.stopped {
 			w.stopped = true
@@ -80,7 +79,7 @@ func (w *Watcher) Next() ([]*naming.Update, error) {
 	for addr, md := range updatedEndpoints {
 		if _, ok := w.endpoints[addr]; !ok {
 			updates = append(updates, &naming.Update{naming.Add, addr, md})
-			grpclog.Printf("kuberesolver/watcher.go: %s ADDED", addr)
+			grpclog.Printf("kuberesolver: %s ADDED to %s", addr, w.target.target)
 		}
 	}
 
@@ -88,10 +87,9 @@ func (w *Watcher) Next() ([]*naming.Update, error) {
 	for addr := range w.endpoints {
 		if _, ok := updatedEndpoints[addr]; !ok {
 			updates = append(updates, &naming.Update{naming.Delete, addr, nil})
-			grpclog.Printf("kuberesolver/watcher.go: %s DELETED", addr)
+			grpclog.Printf("kuberesolver: %s DELETED to %s", addr, addr, w.target.target)
 		}
 	}
-	grpclog.Printf("kuberesolver/watcher.go: current endpoints %+v", updatedEndpoints)
 	w.endpoints = updatedEndpoints
 	return updates, nil
 }

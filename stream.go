@@ -49,8 +49,6 @@ func (sw *streamWatcher) ResultChan() <-chan Event {
 
 // Stop implements Interface.
 func (sw *streamWatcher) Stop() {
-	// Call Close() exactly once by locking and setting a flag.
-	grpclog.Printf("kuberesolver/stream.go: streamWatcher Stop")
 	sw.Lock()
 	defer sw.Unlock()
 	if !sw.stopped {
@@ -80,11 +78,11 @@ func (sw *streamWatcher) receive() {
 			switch err {
 			case io.EOF:
 				// watch closed normally
-				grpclog.Printf("kuberesolver/stream.go: Watch closed normally")
+				grpclog.Printf("kuberesolver: Watch closed normally")
 			case io.ErrUnexpectedEOF:
-				grpclog.Printf("kuberesolver/stream.go: Unexpected EOF during watch stream event decoding: %v", err)
+				grpclog.Printf("kuberesolver: Unexpected EOF during watch stream event decoding: %v", err)
 			default:
-				grpclog.Printf("kuberesolver/stream.go: Unable to decode an event from the watch stream: %v", err)
+				grpclog.Printf("kuberesolver: Unable to decode an event from the watch stream: %v", err)
 			}
 			return
 		}
@@ -99,7 +97,6 @@ func (sw *streamWatcher) Decode() (Event, error) {
 	if err := sw.decoder.Decode(&got); err != nil {
 		return Event{}, err
 	}
-	grpclog.Printf("kuberesolver/stream.go: New Event %v", got)
 	switch got.Type {
 	case Added, Modified, Deleted, Error:
 		return got, nil
