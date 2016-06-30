@@ -33,7 +33,8 @@ func (r *kubeResolver) Resolve(target string) (naming.Watcher, error) {
 	stopCh := make(chan struct{})
 
 	go Until(func() {
-		r.ResolveWrapper(target, stopCh, resultChan)
+		err := r.ResolveWrapper(target, stopCh, resultChan)
+		grpclog.Printf("kuberesolver/resolve.go: ResolveWrapper ended with error=%v", err)
 	}, time.Second, stopCh)
 
 	w := &Watcher{
@@ -62,10 +63,12 @@ func (r *kubeResolver) ResolveWrapper(target string, stopCh <-chan struct{}, res
 
 	req, err := r.k8sClient.getRequest(u.String())
 	if err != nil {
+		grpclog.Printf("kuberesolver/resolver.go: ResolveWrapper getRequest failed with error=%v", err)
 		return err
 	}
 	resp, err := r.k8sClient.Do(req)
 	if err != nil {
+		grpclog.Printf("kuberesolver/resolver.go: ResolveWrapper request failed with error=%v", err)
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
