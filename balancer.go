@@ -2,6 +2,7 @@ package kuberesolver
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -11,8 +12,9 @@ import (
 )
 
 type Balancer struct {
-	client    *k8sClient
 	Namespace string
+	client    *k8sClient
+	resolvers []*kubeResolver
 }
 
 type TargetUrlType int32
@@ -74,13 +76,25 @@ func (b *Balancer) Dial(target string, opts ...grpc.DialOption) (*grpc.ClientCon
 	case TargetTypeKubernetes:
 		grpclog.Printf("kuberesolver/balancer.go: using kubernetes resolver target=%s", pt.target)
 		rs := newResolver(b.client, b.Namespace, pt)
-		opts := append(opts, grpc.WithBalancer(grpc.RoundRobin(&rs)))
+		b.resolvers = append(b.resolvers, rs)
+		opts := append(opts, grpc.WithBalancer(grpc.RoundRobin(rs)))
 		return grpc.Dial(pt.target, opts...)
 	case TargetTypeDNS:
 		return grpc.Dial(pt.target, opts...)
 	default:
 		return nil, errors.New("Unknown target type")
 	}
+}
+
+func (b *Balancer) Healthy() error {
+	for _, r := range b.resolvers {
+		if r.watcher != nil {
+			if len(r.watcher.endpoints) == 0 {
+				return fmt.Errorf("target %s does not have endpoints", r.target.target)
+			}
+		}
+	}
+	return nil
 }
 
 func New() *Balancer {

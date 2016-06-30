@@ -4,57 +4,88 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
+	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/naming"
 )
 
 // Resolver resolves service names using Kubernetes endpoints.
 type kubeResolver struct {
-	K8sClient       *k8sClient
-	Namespace       string
+	k8sClient       *k8sClient
+	namespace       string
 	target          targetInfo
 	resourceVersion string
+	watcher         *Watcher
 }
 
 // NewResolver returns a new Kubernetes resolver.
-func newResolver(client *k8sClient, namespace string, targetInfo targetInfo) kubeResolver {
+func newResolver(client *k8sClient, namespace string, targetInfo targetInfo) *kubeResolver {
 	if namespace == "" {
 		namespace = "default"
 	}
-	return kubeResolver{client, namespace, targetInfo, "0"}
+	return &kubeResolver{client, namespace, targetInfo, "0", nil}
 }
 
 // Resolve creates a Kubernetes watcher for the named target.
 func (r *kubeResolver) Resolve(target string) (naming.Watcher, error) {
+	resultChan := make(chan watchResult)
+	stopCh := make(chan struct{})
+
+	go Until(func() {
+		r.ResolveWrapper(target, stopCh, resultChan)
+	}, time.Second, stopCh)
+
+	w := &Watcher{
+		target:    r.target,
+		endpoints: make(map[string]interface{}),
+		stopCh:    stopCh,
+		result:    resultChan,
+	}
+	r.watcher = w
+	return w, nil
+}
+
+func (r *kubeResolver) ResolveWrapper(target string, stopCh <-chan struct{}, resultCh chan<- watchResult) error {
 	u, err := url.Parse(fmt.Sprintf("%s/api/v1/watch/namespaces/%s/endpoints/%s",
-		r.K8sClient.host, r.Namespace, target))
+		r.k8sClient.host, r.namespace, target))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	// Calls to the Kubernetes endpoints watch API must include the resource
 	// version to ensure watches only return updates since the last watch.
 	q := u.Query()
 	q.Set("resourceVersion", r.resourceVersion)
 	u.RawQuery = q.Encode()
-	req, err := r.K8sClient.getRequest(u.String())
+
+	grpclog.Printf("kuberesolver/resolve.go: ResolveWrapper start url=%s", u.String())
+
+	req, err := r.k8sClient.getRequest(u.String())
 	if err != nil {
-		return nil, err
+		return err
 	}
-	resp, err := r.K8sClient.Do(req)
+	resp, err := r.k8sClient.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		return nil, fmt.Errorf("invalid response code")
+		return fmt.Errorf("invalid response code")
 	}
-	w := &Watcher{
-		target:          r.target,
-		watcher:         newStreamWatcher(resp.Body),
-		endpoints:       make(map[string]interface{}),
-		done:            make(chan struct{}),
-		result:          make(chan watchResult),
-		resourceVersion: "0",
+	sw := newStreamWatcher(resp.Body)
+	for {
+		select {
+		case <-stopCh:
+			grpclog.Printf("kuberesolver/resolver.go: ResolveWrapper stop Channel")
+			return nil
+		case up, more := <-sw.ResultChan():
+			if more {
+				r.resourceVersion = up.Object.Metadata.ResourceVersion
+				resultCh <- watchResult{err: nil, ep: &up}
+			} else {
+				grpclog.Printf("kuberesolver/resolver.go: ResolveWrapper stop ResultChan")
+				return nil
+			}
+		}
 	}
-	return w, nil
 }

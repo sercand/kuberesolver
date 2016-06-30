@@ -9,19 +9,6 @@ import (
 	"google.golang.org/grpc/grpclog"
 )
 
-// Decoder allows StreamWatcher to watch any stream for which a Decoder can be written.
-type decoder interface {
-	// Decode should return the type of event, the decoded object, or an error.
-	// An error will cause StreamWatcher to call Close(). Decode should block until
-	// it has data or an error occurs.
-	Decode() (object Event, err error)
-
-	// Close should close the underlying io.Reader, signalling to the source of
-	// the stream that it is no longer being watched. Close() must cause any
-	// outstanding call to Decode() to return with an error of some sort.
-	Close()
-}
-
 // Interface can be implemented by anything that knows how to watch and report changes.
 type watchInterface interface {
 	// Stops watching. Will close the channel returned by ResultChan(). Releases
@@ -34,47 +21,12 @@ type watchInterface interface {
 	ResultChan() <-chan Event
 }
 
-// JSONDecoder implements the Decoder interface for io.ReadClosers that
-// have contents which consist of a series of watchEvent objects encoded via JSON.
-type JSONDecoder struct {
-	r       io.ReadCloser
-	decoder *json.Decoder
-}
-
-// NewDecoder creates an Decoder for the given writer and codec.
-func newDecoder(r io.ReadCloser) *JSONDecoder {
-	return &JSONDecoder{
-		r:       r,
-		decoder: json.NewDecoder(r),
-	}
-}
-
-// Decode blocks until it can return the next object in the writer. Returns an error
-// if the writer is closed or an object can't be decoded.
-func (d *JSONDecoder) Decode() (Event, error) {
-	var got Event
-	if err := d.decoder.Decode(&got); err != nil {
-		return Event{}, err
-	}
-	switch got.Type {
-	case Added, Modified, Deleted, Error:
-		return got, nil
-	default:
-		return Event{}, fmt.Errorf("got invalid watch event type: %v", got.Type)
-	}
-}
-
-// Close closes the underlying r.
-func (d *JSONDecoder) Close() {
-	grpclog.Printf("kuberesolver/stream.go: streamWatcher Close")
-	d.r.Close()
-}
-
 // StreamWatcher turns any stream for which you can write a Decoder interface
 // into a watch.Interface.
 type streamWatcher struct {
-	source decoder
-	result chan Event
+	result  chan Event
+	r       io.ReadCloser
+	decoder *json.Decoder
 	sync.Mutex
 	stopped bool
 }
@@ -82,11 +34,9 @@ type streamWatcher struct {
 // NewStreamWatcher creates a StreamWatcher from the given io.ReadClosers.
 func newStreamWatcher(r io.ReadCloser) watchInterface {
 	sw := &streamWatcher{
-		source: newDecoder(r),
-		// It's easy for a consumer to add buffering via an extra
-		// goroutine/channel, but impossible for them to remove it,
-		// so nonbuffered is better.
-		result: make(chan Event),
+		r:       r,
+		decoder: json.NewDecoder(r),
+		result:  make(chan Event),
 	}
 	go sw.receive()
 	return sw
@@ -105,7 +55,7 @@ func (sw *streamWatcher) Stop() {
 	defer sw.Unlock()
 	if !sw.stopped {
 		sw.stopped = true
-		sw.source.Close()
+		sw.r.Close()
 	}
 }
 
@@ -121,7 +71,7 @@ func (sw *streamWatcher) receive() {
 	defer close(sw.result)
 	defer sw.Stop()
 	for {
-		obj, err := sw.source.Decode()
+		obj, err := sw.Decode()
 		if err != nil {
 			// Ignore expected error.
 			if sw.stopping() {
@@ -139,5 +89,21 @@ func (sw *streamWatcher) receive() {
 			return
 		}
 		sw.result <- obj
+	}
+}
+
+// Decode blocks until it can return the next object in the writer. Returns an error
+// if the writer is closed or an object can't be decoded.
+func (sw *streamWatcher) Decode() (Event, error) {
+	var got Event
+	if err := sw.decoder.Decode(&got); err != nil {
+		return Event{}, err
+	}
+	grpclog.Printf("kuberesolver/stream.go: New Event %v", got)
+	switch got.Type {
+	case Added, Modified, Deleted, Error:
+		return got, nil
+	default:
+		return Event{}, fmt.Errorf("got invalid watch event type: %v", got.Type)
 	}
 }

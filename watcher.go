@@ -3,6 +3,7 @@ package kuberesolver
 import (
 	"net"
 	"strconv"
+	"sync"
 
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/naming"
@@ -14,21 +15,19 @@ type watchResult struct {
 }
 
 // A Watcher provides name resolution updates from Kubernetes endpoints
-// identified by name. Updates consists of pod IPs and the first port
-// defined on the endpoint.
+// identified by name.
 type Watcher struct {
-	watcher         watchInterface
-	target          targetInfo
-	endpoints       map[string]interface{}
-	done            chan struct{}
-	result          chan watchResult
-	resourceVersion string
+	target    targetInfo
+	endpoints map[string]interface{}
+	stopCh    chan struct{}
+	result    chan watchResult
+	sync.Mutex
+	stopped bool
 }
 
 // Close closes the watcher, cleaning up any open connections.
 func (w *Watcher) Close() {
-	w.done <- struct{}{}
-	w.watcher.Stop()
+	close(w.stopCh)
 }
 
 // Next updates the endpoints for the name being watched.
@@ -38,19 +37,25 @@ func (w *Watcher) Next() ([]*naming.Update, error) {
 	var ep Event
 
 	select {
-	case <-w.done:
-		grpclog.Printf("kuberesolver/watcher.go: w.done channel")
+	case <-w.stopCh:
+		grpclog.Printf("kuberesolver/watcher.go: w.stopCh channel")
+		w.Lock()
+		if !w.stopped {
+			w.stopped = true
+		}
+		w.Unlock()
 		return updates, nil
-	case r := <-w.watcher.ResultChan():
-		ep = r
+	case r := <-w.result:
+		if r.err == nil {
+			ep = *r.ep
+		} else {
+			return updates, r.err
+		}
 	}
-
 	for _, subset := range ep.Object.Subsets {
 		port := ""
 		if w.target.useFirstPort {
-			if len(subset.Ports) > 0 {
-				port = strconv.Itoa(subset.Ports[0].Port)
-			}
+			port = strconv.Itoa(subset.Ports[0].Port)
 		} else if w.target.resolveByPortName {
 			for _, p := range subset.Ports {
 				if p.Name == w.target.port {
@@ -63,12 +68,7 @@ func (w *Watcher) Next() ([]*naming.Update, error) {
 		}
 
 		if len(port) == 0 {
-			if len(subset.Ports) > 0 {
-				port = strconv.Itoa(subset.Ports[0].Port)
-			} else {
-				//does not any available port
-				continue
-			}
+			port = strconv.Itoa(subset.Ports[0].Port)
 		}
 		for _, address := range subset.Addresses {
 			endpoint := net.JoinHostPort(address.IP, port)

@@ -129,6 +129,8 @@ func TestConnection(t *testing.T) {
 	clientCrtFile := os.Getenv("TEST_K8S_CLIENT_CRT")
 	clientKeyFile := os.Getenv("TEST_K8S_CLIENT_KEY")
 	apiHost := os.Getenv("TEST_K8S_API_HOST")
+	service := os.Getenv("TEST_K8S_SERVICE")
+	servicePort := os.Getenv("TEST_K8S_SERVICE_PORT")
 	if len(caCrtFile) == 0 || len(clientCrtFile) == 0 || len(clientKeyFile) == 0 || len(apiHost) == 0 {
 		t.Fatal("")
 	}
@@ -153,8 +155,8 @@ func TestConnection(t *testing.T) {
 	}
 	ti := targetInfo{
 		urlType:           TargetTypeKubernetes,
-		target:            "dummy-service",
-		port:              "18858",
+		target:            service,
+		port:              servicePort,
 		resolveByPortName: false,
 		useFirstPort:      false,
 	}
@@ -163,37 +165,35 @@ func TestConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	u1, err := w.Next()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range u1 {
-		t.Logf("u1: %s %d", r.Addr, r.Op)
-	}
 	res := make(chan struct {
 		up []*naming.Update
 	})
 	errChan := make(chan error)
 	go func() {
-		u2, err := w.Next()
-		if err != nil {
-			errChan <- err
-		} else {
-			res <- struct {
-				up []*naming.Update
-			}{
-				up: u2,
+		for {
+			u2, err := w.Next()
+			if err != nil {
+				errChan <- err
+			} else {
+				res <- struct {
+					up []*naming.Update
+				}{
+					up: u2,
+				}
 			}
 		}
 	}()
-	select {
-	case rrr := <-res:
-		for _, r := range rrr.up {
-			t.Logf("u1: %s %d", r.Addr, r.Op)
+	for {
+		select {
+		case rrr := <-res:
+			for _, r := range rrr.up {
+				fmt.Printf("u1: %s %d\n", r.Addr, r.Op)
+			}
+		case <-time.After(time.Second * 180):
+			w.Close()
+			t.Fatal("time out")
+		case err := <-errChan:
+			t.Fatal(err)
 		}
-	case <-time.After(time.Second * 2):
-		w.Close()
-	case err := <-errChan:
-		t.Fatal(err)
 	}
 }
