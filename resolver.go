@@ -15,7 +15,7 @@ type kubeResolver struct {
 	k8sClient *k8sClient
 	namespace string
 	target    targetInfo
-	watcher   *Watcher
+	watcher   *watcher
 }
 
 // NewResolver returns a new Kubernetes resolver.
@@ -31,14 +31,14 @@ func (r *kubeResolver) Resolve(target string) (naming.Watcher, error) {
 	resultChan := make(chan watchResult)
 	stopCh := make(chan struct{})
 
-	go Until(func() {
+	go until(func() {
 		err := r.watch(target, stopCh, resultChan)
 		if err != nil {
 			grpclog.Printf("kuberesolver: watching ended with error='%v', will reconnect againg", err)
 		}
 	}, time.Second, stopCh)
 
-	r.watcher = &Watcher{
+	r.watcher = &watcher{
 		target:    r.target,
 		endpoints: make(map[string]interface{}),
 		stopCh:    stopCh,

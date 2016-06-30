@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/grpclog"
 )
 
-func Until(f func(), period time.Duration, stopCh <-chan struct{}) {
+func until(f func(), period time.Duration, stopCh <-chan struct{}) {
 	select {
 	case <-stopCh:
 		return
@@ -16,7 +16,7 @@ func Until(f func(), period time.Duration, stopCh <-chan struct{}) {
 	}
 	for {
 		func() {
-			defer HandleCrash()
+			defer handleCrash()
 			f()
 		}()
 		select {
@@ -28,7 +28,7 @@ func Until(f func(), period time.Duration, stopCh <-chan struct{}) {
 }
 
 // HandleCrash simply catches a crash and logs an error. Meant to be called via defer.
-func HandleCrash() {
+func handleCrash() {
 	if r := recover(); r != nil {
 		callers := ""
 		for i := 0; true; i++ {
