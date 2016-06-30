@@ -87,7 +87,7 @@ func (w *Watcher) Next() ([]*naming.Update, error) {
 	for addr := range w.endpoints {
 		if _, ok := updatedEndpoints[addr]; !ok {
 			updates = append(updates, &naming.Update{naming.Delete, addr, nil})
-			grpclog.Printf("kuberesolver: %s DELETED to %s", addr, addr, w.target.target)
+			grpclog.Printf("kuberesolver: %s DELETED to %s", addr, w.target.target)
 		}
 	}
 	w.endpoints = updatedEndpoints
