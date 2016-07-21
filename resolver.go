@@ -14,20 +14,23 @@ import (
 type kubeResolver struct {
 	k8sClient *k8sClient
 	namespace string
-	target    targetInfo
 	watcher   *watcher
 }
 
 // NewResolver returns a new Kubernetes resolver.
-func newResolver(client *k8sClient, namespace string, targetInfo targetInfo) *kubeResolver {
+func newResolver(client *k8sClient, namespace string) *kubeResolver {
 	if namespace == "" {
 		namespace = "default"
 	}
-	return &kubeResolver{client, namespace, targetInfo, nil}
+	return &kubeResolver{client, namespace, nil}
 }
 
 // Resolve creates a Kubernetes watcher for the named target.
 func (r *kubeResolver) Resolve(target string) (naming.Watcher, error) {
+	pt, err := parseTarget(target)
+	if err != nil {
+		return nil, err
+	}
 	resultChan := make(chan watchResult)
 	stopCh := make(chan struct{})
 
@@ -39,7 +42,7 @@ func (r *kubeResolver) Resolve(target string) (naming.Watcher, error) {
 	}, time.Second, stopCh)
 
 	r.watcher = &watcher{
-		target:    r.target,
+		target:    pt,
 		endpoints: make(map[string]interface{}),
 		stopCh:    stopCh,
 		result:    resultChan,

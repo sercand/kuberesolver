@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
+	"google.golang.org/grpc/naming"
 )
 
 type Balancer struct {
@@ -66,6 +67,17 @@ func parseTarget(target string) (targetInfo, error) {
 	return ti, nil
 }
 
+//Resolver returns Resolver for grpc
+func (b *Balancer) Resolver() naming.Resolver {
+	return newResolver(b.client, b.Namespace)
+}
+
+//DialOption returns grpc.DialOption with RoundRobin balancer and resolver
+func (b *Balancer) DialOption() grpc.DialOption {
+	rs := newResolver(b.client, b.Namespace)
+	return grpc.WithBalancer(grpc.RoundRobin(rs))
+}
+
 // Dial calls grpc.Dial, also parses target and uses load balancer if necessary
 func (b *Balancer) Dial(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	pt, err := parseTarget(target)
@@ -75,7 +87,7 @@ func (b *Balancer) Dial(target string, opts ...grpc.DialOption) (*grpc.ClientCon
 	switch pt.urlType {
 	case TargetTypeKubernetes:
 		grpclog.Printf("kuberesolver: using kubernetes resolver target=%s", pt.target)
-		rs := newResolver(b.client, b.Namespace, pt)
+		rs := newResolver(b.client, b.Namespace)
 		b.resolvers = append(b.resolvers, rs)
 		opts := append(opts, grpc.WithBalancer(grpc.RoundRobin(rs)))
 		return grpc.Dial(pt.target, opts...)
@@ -90,7 +102,7 @@ func (b *Balancer) Healthy() error {
 	for _, r := range b.resolvers {
 		if r.watcher != nil {
 			if len(r.watcher.endpoints) == 0 {
-				return fmt.Errorf("target %s does not have endpoints", r.target.target)
+				return fmt.Errorf("target does not have endpoints")
 			}
 		}
 	}
