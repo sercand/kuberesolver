@@ -86,6 +86,9 @@ func (b *Balancer) Dial(target string, opts ...grpc.DialOption) (*grpc.ClientCon
 	}
 	switch pt.urlType {
 	case TargetTypeKubernetes:
+		if b.client == nil {
+			return nil, errors.New("application is not running inside kubernetes")
+		}
 		grpclog.Printf("kuberesolver: using kubernetes resolver target=%s", pt.target)
 		rs := newResolver(b.client, b.Namespace)
 		b.resolvers = append(b.resolvers, rs)
@@ -109,14 +112,21 @@ func (b *Balancer) Healthy() error {
 	return nil
 }
 
-func New() (*Balancer, error) {
+// IsInCluster returns true if application is running inside kubernetes cluster
+func (b *Balancer)IsInCluster() bool {
+	return b.client != nil
+}
+
+// New creates a Balancer "default" namespace
+func New() (*Balancer) {
 	return NewWithNamespace("default")
 }
 
-func NewWithNamespace(namespace string) (*Balancer, error) {
+// NewWithNamespace creates a Balancer with given namespace.
+func NewWithNamespace(namespace string) (*Balancer) {
 	client, err := newInClusterClient()
 	if err != nil {
-		return nil, err
+		grpclog.Printf("kuberesolver: failed to create incluster client, %v", err)
 	}
 	return &Balancer{
 		Namespace: namespace,
