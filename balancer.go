@@ -131,5 +131,5 @@ func NewWithNamespace(namespace string) (*Balancer) {
 	return &Balancer{
 		Namespace: namespace,
 		client:    client,
-	}, nil
+	}
 }
