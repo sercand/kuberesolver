@@ -21,10 +21,10 @@ type Balancer struct {
 type TargetUrlType int32
 
 const (
-	TargetTypeDNS        TargetUrlType = 0
+	TargetTypeDNS TargetUrlType = 0
 	TargetTypeKubernetes TargetUrlType = 1
-	kubernetesSchema                   = "kubernetes"
-	dnsSchema                          = "dns"
+	kubernetesSchema = "kubernetes"
+	dnsSchema = "dns"
 )
 
 type targetInfo struct {
@@ -109,21 +109,17 @@ func (b *Balancer) Healthy() error {
 	return nil
 }
 
-func New() *Balancer {
-	client, err := newInClusterClient()
-	if err != nil {
-		grpclog.Printf("kuberesolver: failed to create in cluster client, err=%v", err)
-	}
-	return &Balancer{
-		Namespace: "default",
-		client:    client,
-	}
+func New() (*Balancer, error) {
+	return NewWithNamespace("default")
 }
 
-func NewWithNamespace(namespace string) *Balancer {
-	client, _ := newInClusterClient()
+func NewWithNamespace(namespace string) (*Balancer, error) {
+	client, err := newInClusterClient()
+	if err != nil {
+		return nil, err
+	}
 	return &Balancer{
 		Namespace: namespace,
 		client:    client,
-	}
+	}, nil
 }
