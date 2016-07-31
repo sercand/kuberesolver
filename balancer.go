@@ -21,10 +21,10 @@ type Balancer struct {
 type TargetUrlType int32
 
 const (
-	TargetTypeDNS TargetUrlType = 0
+	TargetTypeDNS        TargetUrlType = 0
 	TargetTypeKubernetes TargetUrlType = 1
-	kubernetesSchema = "kubernetes"
-	dnsSchema = "dns"
+	kubernetesSchema                   = "kubernetes"
+	dnsSchema                          = "dns"
 )
 
 type targetInfo struct {
@@ -93,7 +93,7 @@ func (b *Balancer) Dial(target string, opts ...grpc.DialOption) (*grpc.ClientCon
 		rs := newResolver(b.client, b.Namespace)
 		b.resolvers = append(b.resolvers, rs)
 		opts := append(opts, grpc.WithBalancer(grpc.RoundRobin(rs)))
-		return grpc.Dial(pt.target, opts...)
+		return grpc.Dial(target, opts...)
 	case TargetTypeDNS:
 		return grpc.Dial(pt.target, opts...)
 	default:
@@ -113,20 +113,20 @@ func (b *Balancer) Healthy() error {
 }
 
 // IsInCluster returns true if application is running inside kubernetes cluster
-func (b *Balancer)IsInCluster() bool {
+func (b *Balancer) IsInCluster() bool {
 	return b.client != nil
 }
 
-// New creates a Balancer "default" namespace
-func New() (*Balancer) {
+// New creates a Balancer with "default" namespace
+func New() *Balancer {
 	return NewWithNamespace("default")
 }
 
 // NewWithNamespace creates a Balancer with given namespace.
-func NewWithNamespace(namespace string) (*Balancer) {
+func NewWithNamespace(namespace string) *Balancer {
 	client, err := newInClusterClient()
 	if err != nil {
-		grpclog.Printf("kuberesolver: failed to create incluster client, %v", err)
+		grpclog.Printf("kuberesolver: application is not running inside kubernetes")
 	}
 	return &Balancer{
 		Namespace: namespace,

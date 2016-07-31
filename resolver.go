@@ -33,11 +33,11 @@ func (r *kubeResolver) Resolve(target string) (naming.Watcher, error) {
 	}
 	resultChan := make(chan watchResult)
 	stopCh := make(chan struct{})
-
+	wtarget := pt.target
 	go until(func() {
-		err := r.watch(target, stopCh, resultChan)
+		err := r.watch(wtarget, stopCh, resultChan)
 		if err != nil {
-			grpclog.Printf("kuberesolver: watching ended with error='%v', will reconnect againg", err)
+			grpclog.Printf("kuberesolver: watching ended with error='%v', will reconnect again", err)
 		}
 	}, time.Second, stopCh)
 
