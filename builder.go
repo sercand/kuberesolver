@@ -16,6 +16,7 @@ import (
 
 const (
 	kubernetesSchema = "kubernetes"
+	defaultFreq      = time.Minute * 30
 )
 
 type targetInfo struct {
@@ -112,11 +113,11 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 			return nil, err
 		}
 	}
-	ctx, cancel := context.WithCancel(context.Background())
 	ti, err := parseResolverTarget(target)
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &kResolver{
 		target:    ti,
 		ctx:       ctx,
@@ -124,9 +125,11 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		cc:        cc,
 		rn:        make(chan struct{}, 1),
 		k8sClient: b.k8sClient,
+		t:         time.NewTimer(defaultFreq),
+		freq:      defaultFreq,
 	}
-	r.wg.Add(1)
 	go until(func() {
+		r.wg.Add(1)
 		err := r.watch()
 		if err != nil && err != io.EOF {
 			grpclog.Errorf("kuberesolver: watching ended with error='%v', will reconnect again", err)
@@ -150,12 +153,9 @@ type kResolver struct {
 	rn        chan struct{}
 	k8sClient K8sClient
 	// wg is used to enforce Close() to return after the watcher() goroutine has finished.
-	// Otherwise, data race will be possible. [Race Example] in dns_resolver_test we
-	// replace the real lookup functions with mocked ones to facilitate testing.
-	// If Close() doesn't wait for watcher() goroutine finishes, race detector sometimes
-	// will warns lookup (READ the lookup function pointers) inside watcher() goroutine
-	// has data race with replaceNetFunc (WRITE the lookup function pointers).
-	wg sync.WaitGroup
+	wg   sync.WaitGroup
+	t    *time.Timer
+	freq time.Duration
 }
 
 // ResolveNow will be called by gRPC to try to resolve the target name again.
@@ -218,7 +218,20 @@ func (k *kResolver) handle(e Endpoints) {
 	}
 }
 
+func (k *kResolver) resolve() {
+	e, err := getEndpoints(k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
+	if err == nil {
+		k.handle(e)
+	} else {
+		grpclog.Errorf("kuberesolver: lookup endpoints failed: %v", err)
+	}
+	// Next lookup should happen after an interval defined by k.freq.
+	k.t.Reset(k.freq)
+}
+
 func (k *kResolver) watch() error {
+	defer k.wg.Done()
+	// watch endpoints lists existing endpoints at start
 	sw, err := watchEndpoints(k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
 	if err != nil {
 		return err
@@ -227,11 +240,10 @@ func (k *kResolver) watch() error {
 		select {
 		case <-k.ctx.Done():
 			return nil
+		case <-k.t.C:
+			k.resolve()
 		case <-k.rn:
-			e, err := getEndpoints(k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
-			if err == nil {
-				k.handle(e)
-			}
+			k.resolve()
 		case up, hasMore := <-sw.ResultChan():
 			if hasMore {
 				k.handle(up.Object)
