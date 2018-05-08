@@ -10,7 +10,7 @@ import (
 
 func newTestBuilder() resolver.Builder {
 	cl := NewInsecureK8sClient("http://127.0.0.1:8001")
-	return NewBuilder(cl)
+	return NewBuilder(cl, kubernetesSchema)
 }
 
 type fakeConn struct {
@@ -48,6 +48,7 @@ func TestBuilder(t *testing.T) {
 	fmt.Printf("ResolveNow \n")
 	rs.ResolveNow(resolver.ResolveNowOption{})
 	<-fc.cmp
+
 }
 
 //
