@@ -28,18 +28,24 @@ type targetInfo struct {
 
 // RegisterInCluster registers the kuberesolver builder to grpc
 func RegisterInCluster() {
-	resolver.Register(NewBuilder(nil))
+	RegisterInClusterWithSchema(kubernetesSchema)
+}
+
+func RegisterInClusterWithSchema(schema string) {
+	resolver.Register(NewBuilder(nil, schema))
 }
 
 // NewBuilder creates a kubeBuilder which is used to factory Kuberesolvers.
-func NewBuilder(client K8sClient) resolver.Builder {
+func NewBuilder(client K8sClient, schema string) resolver.Builder {
 	return &kubeBuilder{
 		k8sClient: client,
+		schema:    schema,
 	}
 }
 
 type kubeBuilder struct {
 	k8sClient K8sClient
+	schema    string
 }
 
 func parseResolverTarget(target resolver.Target) (targetInfo, error) {
@@ -132,7 +138,7 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 // Scheme returns the scheme supported by this resolver.
 // Scheme is defined at https://github.com/grpc/grpc/blob/master/doc/naming.md.
 func (b *kubeBuilder) Scheme() string {
-	return kubernetesSchema
+	return b.schema
 }
 
 type kResolver struct {
