@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/resolver"
@@ -19,12 +21,33 @@ const (
 	defaultFreq      = time.Minute * 30
 )
 
+var (
+	endpointsForTarget = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kuberesolver_endpoints_total",
+			Help: "The number of endpoints for a given target",
+		},
+		[]string{"target"},
+	)
+	addressesForTarget = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kuberesolver_addresses_total",
+			Help: "The number of addresses for a given target",
+		},
+		[]string{"target"},
+	)
+)
+
 type targetInfo struct {
 	serviceName       string
 	serviceNamespace  string
 	port              string
 	resolveByPortName bool
 	useFirstPort      bool
+}
+
+func (ti targetInfo) String() string {
+	return fmt.Sprintf("kubernetes:///%s/%s:%s", ti.serviceNamespace, ti.serviceName, ti.port)
 }
 
 // RegisterInCluster registers the kuberesolver builder to grpc
@@ -127,6 +150,9 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		k8sClient: b.k8sClient,
 		t:         time.NewTimer(defaultFreq),
 		freq:      defaultFreq,
+
+		endpoints: endpointsForTarget.WithLabelValues(ti.String()),
+		addresses: addressesForTarget.WithLabelValues(ti.String()),
 	}
 	go until(func() {
 		r.wg.Add(1)
@@ -156,6 +182,9 @@ type kResolver struct {
 	wg   sync.WaitGroup
 	t    *time.Timer
 	freq time.Duration
+
+	endpoints prometheus.Gauge
+	addresses prometheus.Gauge
 }
 
 // ResolveNow will be called by gRPC to try to resolve the target name again.
@@ -216,6 +245,9 @@ func (k *kResolver) handle(e Endpoints) {
 	if len(result) > 0 {
 		k.cc.NewAddress(result)
 	}
+
+	k.endpoints.Set(float64(len(e.Subsets)))
+	k.addresses.Set(float64(len(result)))
 }
 
 func (k *kResolver) resolve() {
