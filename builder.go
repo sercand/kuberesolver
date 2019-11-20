@@ -108,10 +108,9 @@ func parseResolverTarget(target resolver.Target) (targetInfo, error) {
 
 	namesplit := strings.Split(name, ".")
 	sname := name
-	if len(namesplit) == 1 {
+	if len(namesplit) > 1 {
 		sname = namesplit[0]
-	} else {
-		sname, snamespace = namesplit[0], namesplit[1]
+		snamespace = namesplit[1]
 	}
 	ti.serviceName = sname
 	ti.serviceNamespace = snamespace
