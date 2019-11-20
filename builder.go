@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	kubernetesSchema = "k8s"
+	//KubernetesSchema Schema name
+	KubernetesSchema = "k8s"
 	defaultFreq      = time.Minute * 15
 )
 
@@ -53,7 +54,7 @@ func (ti targetInfo) String() string {
 
 // RegisterInCluster registers the kuberesolver builder to grpc
 func RegisterInCluster() {
-	RegisterInClusterWithSchema(kubernetesSchema)
+	RegisterInClusterWithSchema(KubernetesSchema)
 }
 
 func RegisterInClusterWithSchema(schema string) {

@@ -10,7 +10,7 @@ import (
 
 func newTestBuilder() resolver.Builder {
 	cl := NewInsecureK8sClient("http://127.0.0.1:8001")
-	return NewBuilder(cl, kubernetesSchema)
+	return NewBuilder(cl, KubernetesSchema)
 }
 
 type fakeConn struct {
