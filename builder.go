@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,8 +18,8 @@ import (
 )
 
 const (
-	kubernetesSchema = "kubernetes"
-	defaultFreq      = time.Minute * 30
+	kubernetesSchema = "k8s"
+	defaultFreq      = time.Minute * 15
 )
 
 var (
@@ -105,11 +106,12 @@ func parseResolverTarget(target resolver.Target) (targetInfo, error) {
 		}
 	}
 
-	namesplit := strings.SplitN(name, ".", 2)
+	namesplit := strings.Split(name, ".")
 	sname := name
-	if len(namesplit) == 2 {
+	if len(namesplit) == 1 {
 		sname = namesplit[0]
-		snamespace = namesplit[1]
+	} else {
+		sname, snamespace = namesplit[0], namesplit[1]
 	}
 	ti.serviceName = sname
 	ti.serviceNamespace = snamespace
@@ -241,6 +243,7 @@ func (k *kResolver) makeAddresses(e Endpoints) ([]resolver.Address, string) {
 
 func (k *kResolver) handle(e Endpoints) {
 	result, _ := k.makeAddresses(e)
+	grpclog.Warningf("kuberesolver: new endpoints %d: %+v, goroutine %d", len(result), result, runtime.NumGoroutine())
 	//	k.cc.NewServiceConfig(sc)
 	if len(result) > 0 {
 		k.cc.NewAddress(result)
@@ -253,6 +256,7 @@ func (k *kResolver) handle(e Endpoints) {
 func (k *kResolver) resolve() {
 	e, err := getEndpoints(k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
 	if err == nil {
+		grpclog.Warningf("kuberesolver: handle endpoints: %+v", e)
 		k.handle(e)
 	} else {
 		grpclog.Errorf("kuberesolver: lookup endpoints failed: %v", err)

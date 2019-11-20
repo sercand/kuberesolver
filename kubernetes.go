@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -56,7 +55,9 @@ func (kc *k8sClient) Host() string {
 
 // NewInClusterK8sClient creates K8sClient if it is inside Kubernetes
 func NewInClusterK8sClient() (K8sClient, error) {
-	host, port := os.Getenv("KUBERNETES_SERVICE_HOST"), os.Getenv("KUBERNETES_SERVICE_PORT")
+	// host, port := os.Getenv("KUBERNETES_SERVICE_HOST"), os.Getenv("KUBERNETES_SERVICE_PORT")
+	host := "kubernetes.default.svc.cluster.local"
+	port := "443"
 	if len(host) == 0 || len(port) == 0 {
 		return nil, fmt.Errorf("unable to load in-cluster configuration, KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined")
 	}

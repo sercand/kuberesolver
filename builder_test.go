@@ -32,7 +32,11 @@ func (*fakeConn) NewServiceConfig(serviceConfig string) {
 	fmt.Printf("serviceConfig: %s\n", serviceConfig)
 }
 
-func TestBuilder(t *testing.T) {
+func (*fakeConn) UpdateState(state resolver.State) {
+	fmt.Printf("state: %+v\n", state)
+}
+
+func SkipTestBuilder(t *testing.T) {
 	bl := newTestBuilder()
 	fc := &fakeConn{
 		cmp: make(chan struct{}),
@@ -93,6 +97,11 @@ func TestParseResolverTarget(t *testing.T) {
 		{resolver.Target{"", "a", "b:port"}, targetInfo{"b", "a", "port", true, false}, false},
 		{resolver.Target{"", "b.a:port", ""}, targetInfo{"b", "a", "port", true, false}, false},
 		{resolver.Target{"", "b.a:80", ""}, targetInfo{"b", "a", "80", false, false}, false},
+
+		{resolver.Target{"", "", "app:443"}, targetInfo{"app", "default", "443", false, false}, false},
+		{resolver.Target{"", "", "app.ns:65533"}, targetInfo{"app", "ns", "65533", false, false}, false},
+		{resolver.Target{"", "", "app.ns.svc:443"}, targetInfo{"app", "ns", "443", false, false}, false},
+		{resolver.Target{"", "", "app.ns.svc.cluster.local:65533"}, targetInfo{"app", "ns", "65533", false, false}, false},
 	} {
 		got, err := parseResolverTarget(test.target)
 		if err == nil && test.err {
@@ -116,18 +125,23 @@ func TestParseTargets(t *testing.T) {
 		err    bool
 	}{
 		{"", targetInfo{}, true},
-		{"kubernetes:///", targetInfo{}, true},
-		{"kubernetes://a:30", targetInfo{}, true},
-		{"kubernetes://a/", targetInfo{"a", "default", "", false, true}, false},
-		{"kubernetes:///a", targetInfo{"a", "default", "", false, true}, false},
-		{"kubernetes://a/b", targetInfo{"b", "a", "", false, true}, false},
-		{"kubernetes://a.b/", targetInfo{"a", "b", "", false, true}, false},
-		{"kubernetes:///a.b:80", targetInfo{"a", "b", "80", false, false}, false},
-		{"kubernetes:///a.b:port", targetInfo{"a", "b", "port", true, false}, false},
-		{"kubernetes:///a:port", targetInfo{"a", "default", "port", true, false}, false},
-		{"kubernetes://x/a:port", targetInfo{"a", "x", "port", true, false}, false},
-		{"kubernetes://a.x:port/", targetInfo{"a", "x", "port", true, false}, false},
-		{"kubernetes://a.x:30/", targetInfo{"a", "x", "30", false, false}, false},
+		{"k8s:///", targetInfo{}, true},
+		{"k8s://a:30", targetInfo{}, true},
+		{"k8s://a/", targetInfo{"a", "default", "", false, true}, false},
+		{"k8s:///a", targetInfo{"a", "default", "", false, true}, false},
+		{"k8s://a/b", targetInfo{"b", "a", "", false, true}, false},
+		{"k8s://a.b/", targetInfo{"a", "b", "", false, true}, false},
+		{"k8s:///a.b:80", targetInfo{"a", "b", "80", false, false}, false},
+		{"k8s:///a.b:port", targetInfo{"a", "b", "port", true, false}, false},
+		{"k8s:///a:port", targetInfo{"a", "default", "port", true, false}, false},
+		{"k8s://x/a:port", targetInfo{"a", "x", "port", true, false}, false},
+		{"k8s://a.x:port/", targetInfo{"a", "x", "port", true, false}, false},
+		{"k8s://a.x:30/", targetInfo{"a", "x", "30", false, false}, false},
+
+		{"k8s:///app:443", targetInfo{"app", "default", "443", false, false}, false},
+		{"k8s:///app.ns:443", targetInfo{"app", "ns", "443", false, false}, false},
+		{"k8s:///app.ns.svc:443", targetInfo{"app", "ns", "443", false, false}, false},
+		{"k8s:///app.ns.svc.cluster.local:65533", targetInfo{"app", "ns", "65533", false, false}, false},
 	} {
 		got, err := parseResolverTarget(parseTarget(test.target))
 		if err == nil && test.err {

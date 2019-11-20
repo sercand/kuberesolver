@@ -11,18 +11,24 @@ client, err := kuberesolver.NewInClusterK8sClient()
 resolver.Register(kuberesolver.NewBuilder(client))
 
 // USAGE:
-// if schema is 'kubernetes' then grpc will use kuberesolver to resolve addresses
-cc, err := grpc.Dial("kubernetes:///service-name.namespace:portname", opts...)
+// if schema is 'k8s' then grpc will use kuberesolver to resolve addresses
+cc, err := grpc.Dial("k8s:///service-name.namespace:portname", opts...)
 ```
 
 An url can be one of the following, [grpc naming docs](https://github.com/grpc/grpc/blob/master/doc/naming.md)
 ```
-kubernetes:///service-name:8080
-kubernetes:///service-name:portname
-kubernetes:///service-name.namespace:8080
+k8s:///service-name:8080
+k8s:///service-name:portname
+k8s:///service-name.namespace:8080
+k8s:///service-name.namespace.svc:8080
+k8s:///service-name.namespace.svc.cluster.local:8080
 
-kubernetes://namespace/service-name:8080
-kubernetes://service-name:8080/
-kubernetes://service-name.namespace:8080/
+k8s://namespace/service-name:8080
+k8s://service-name:8080/
+k8s://service-name.namespace:8080/
+```
 
+To enable the GRPC warning log, add envrionment variable
+```
+GRPC_GO_LOG_SEVERITY_LEVEL: warning
 ```
