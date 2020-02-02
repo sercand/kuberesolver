@@ -2,6 +2,8 @@ package kuberesolver
 
 import (
 	"fmt"
+	"google.golang.org/grpc/serviceconfig"
+	"log"
 	"strings"
 	"testing"
 
@@ -16,6 +18,21 @@ func newTestBuilder() resolver.Builder {
 type fakeConn struct {
 	cmp   chan struct{}
 	found []string
+}
+
+func (fc *fakeConn) UpdateState(resolver.State) {
+
+}
+
+func (fc *fakeConn) ReportError(e error) {
+	log.Println(e)
+}
+
+func (fc *fakeConn) ParseServiceConfig(serviceConfigJSON string) *serviceconfig.ParseResult {
+	return &serviceconfig.ParseResult{
+		Config: nil,
+		Err:    fmt.Errorf("no implementation for ParseServiceConfig"),
+	}
 }
 
 func (fc *fakeConn) NewAddress(addresses []resolver.Address) {
@@ -37,7 +54,7 @@ func TestBuilder(t *testing.T) {
 	fc := &fakeConn{
 		cmp: make(chan struct{}),
 	}
-	rs, err := bl.Build(resolver.Target{Endpoint: "kube-dns.kube-system:53", Scheme: "kubernetes", Authority: ""}, fc, resolver.BuildOption{})
+	rs, err := bl.Build(resolver.Target{Endpoint: "kube-dns.kube-system:53", Scheme: "kubernetes", Authority: ""}, fc, resolver.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +63,7 @@ func TestBuilder(t *testing.T) {
 		t.Fatal("could not found endpoints")
 	}
 	fmt.Printf("ResolveNow \n")
-	rs.ResolveNow(resolver.ResolveNowOption{})
+	rs.ResolveNow(resolver.ResolveNowOptions{})
 	<-fc.cmp
 
 }

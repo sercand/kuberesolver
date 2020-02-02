@@ -128,7 +128,7 @@ func parseResolverTarget(target resolver.Target) (targetInfo, error) {
 //
 // gRPC dial calls Build synchronously, and fails if the returned error is
 // not nil.
-func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOption) (resolver.Resolver, error) {
+func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
 	if b.k8sClient == nil {
 		if cl, err := NewInClusterK8sClient(); err == nil {
 			b.k8sClient = cl
@@ -189,7 +189,7 @@ type kResolver struct {
 
 // ResolveNow will be called by gRPC to try to resolve the target name again.
 // It's just a hint, resolver can ignore this if it's not necessary.
-func (k *kResolver) ResolveNow(resolver.ResolveNowOption) {
+func (k *kResolver) ResolveNow(resolver.ResolveNowOptions) {
 	select {
 	case k.rn <- struct{}{}:
 	default:
