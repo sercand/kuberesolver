@@ -12,7 +12,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"golang.org/x/net/context"
-	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/resolver"
 )
@@ -233,33 +232,11 @@ func (k *kResolver) makeAddresses(e Endpoints) ([]resolver.Address, string) {
 				Type:       resolver.Backend,
 				Addr:       net.JoinHostPort(address.IP, port),
 				ServerName: sname,
-				Attributes: attributes.New(
-					attrEndpointReference{}, address.TargetRef,
-					attrEndpointLabels{}, e.Metadata.Labels,
-				),
+				Metadata:   nil,
 			})
 		}
 	}
 	return newAddrs, ""
-}
-
-type attrEndpointReference struct{}
-type attrEndpointLabels struct{}
-
-// EndpointReference returns the endpoint's object reference, extracting it
-// from the attributes on a corresponding resolver.Address created for the
-// endpoint. It may return nil.
-func EndpointReference(attr *attributes.Attributes) *ObjectReference {
-	ref, _ := attr.Value(attrEndpointReference{}).(*ObjectReference)
-	return ref
-}
-
-// EndpointLabels returns the endpoint's metadata labels, extracting them
-// from the attributes on a corresponding resolver.Address created for the
-// endpoint.
-func EndpointLabels(attr *attributes.Attributes) map[string]string {
-	lbls, _ := attr.Value(attrEndpointLabels{}).(map[string]string)
-	return lbls
 }
 
 func (k *kResolver) handle(e Endpoints) {
