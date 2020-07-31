@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	serviceAccountToken  = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-	serviceAccountCACert = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	serviceAccountToken     = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	serviceAccountCACert    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	kubernetesNamespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+	defaultNamespace        = "default"
 )
 
 // K8sClient is minimal kubernetes client interface
@@ -134,4 +136,12 @@ func watchEndpoints(client K8sClient, namespace, targetName string) (watchInterf
 		return nil, fmt.Errorf("invalid response code %d", resp.StatusCode)
 	}
 	return newStreamWatcher(resp.Body), nil
+}
+
+func getCurrentNamespaceOrDefault() string {
+	ns, err := ioutil.ReadFile(kubernetesNamespaceFile)
+	if err != nil {
+		return defaultNamespace
+	}
+	return string(ns)
 }

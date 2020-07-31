@@ -47,19 +47,20 @@ type targetInfo struct {
 }
 
 func (ti targetInfo) String() string {
-	return fmt.Sprintf("kubernetes:///%s/%s:%s", ti.serviceNamespace, ti.serviceName, ti.port)
+	return fmt.Sprintf("kubernetes://%s/%s:%s", ti.serviceNamespace, ti.serviceName, ti.port)
 }
 
-// RegisterInCluster registers the kuberesolver builder to grpc
+// RegisterInCluster registers the kuberesolver builder to grpc with kubernetes schema
 func RegisterInCluster() {
 	RegisterInClusterWithSchema(kubernetesSchema)
 }
 
+// RegisterInClusterWithSchema registers the kuberesolver builder to the grpc with custom schema
 func RegisterInClusterWithSchema(schema string) {
 	resolver.Register(NewBuilder(nil, schema))
 }
 
-// NewBuilder creates a kubeBuilder which is used to factory Kuberesolvers.
+// NewBuilder creates a kubeBuilder which is used by grpc resolver.
 func NewBuilder(client K8sClient, schema string) resolver.Builder {
 	return &kubeBuilder{
 		k8sClient: client,
@@ -79,14 +80,8 @@ func parseResolverTarget(target resolver.Target) (targetInfo, error) {
 	// kubernetes://service.default:port/
 	if end == "" {
 		end = target.Authority
-		snamespace = "default"
+		snamespace = ""
 	}
-	// kubernetes:///service:port
-	// kubernetes://service:port/
-	if snamespace == "" {
-		snamespace = "default"
-	}
-
 	ti := targetInfo{}
 	if end == "" {
 		return targetInfo{}, fmt.Errorf("target(%q) is empty", target)
@@ -139,6 +134,9 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 	ti, err := parseResolverTarget(target)
 	if err != nil {
 		return nil, err
+	}
+	if ti.serviceNamespace == "" {
+		ti.serviceNamespace = getCurrentNamespaceOrDefault()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &kResolver{
