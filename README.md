@@ -3,14 +3,20 @@
 A Grpc name resolver by using kubernetes API.
 It comes with a small ~250 LOC kubernetes client to find service endpoints. Therefore it won't bloat your binaries.
 
+
+### USAGE
+
 ```go
+
+// Import the module
+import "github.com/sercand/kuberesolver/v3"
+	
 // Register kuberesolver to grpc before calling grpc.Dial
 kuberesolver.RegisterInCluster()
 
-// is same as
+// it is same as
 resolver.Register(kuberesolver.NewBuilder(nil /*custom kubernetes client*/ , "kubernetes"))
 
-// USAGE:
 // if schema is 'kubernetes' then grpc will use kuberesolver to resolve addresses
 cc, err := grpc.Dial("kubernetes:///service.namespace:portname", opts...)
 ```
@@ -37,7 +43,7 @@ Use `RegisterInClusterWithSchema(schema)` instead of `RegisterInCluster` on star
 You need to pass grpc.WithBalancerName option to grpc on dial: 
 
 ```go
-grpc.DialContext(ctx,  "kubernetes:///service:grpc", grpc.WithBalancerName("round_robin") )
+grpc.DialContext(ctx,  "kubernetes:///service:grpc", grpc.WithBalancerName("round_robin"), grpc.WithInsecure())
 ```
 This will create subconnections for each available service endpoints.
 
