@@ -1,6 +1,7 @@
 package kuberesolver
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/resolver"
 )
