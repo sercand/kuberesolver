@@ -110,7 +110,7 @@ func getEndpoints(client K8sClient, namespace, targetName string) (Endpoints, er
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return Endpoints{}, fmt.Errorf("invalid response code %d", resp.StatusCode)
+		return Endpoints{}, fmt.Errorf("invalid response code %d for service %s in namespace %s", resp.StatusCode, targetName, namespace)
 	}
 	result := Endpoints{}
 	err = json.NewDecoder(resp.Body).Decode(&result)
@@ -133,7 +133,7 @@ func watchEndpoints(client K8sClient, namespace, targetName string) (watchInterf
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		return nil, fmt.Errorf("invalid response code %d", resp.StatusCode)
+		return nil, fmt.Errorf("invalid response code %d for service %s in namespace %s", resp.StatusCode, targetName, namespace)
 	}
 	return newStreamWatcher(resp.Body), nil
 }
