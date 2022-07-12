@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 const (
@@ -78,11 +80,45 @@ func NewInClusterK8sClient() (K8sClient, error) {
 	}}
 	httpClient := &http.Client{Transport: transport, Timeout: time.Nanosecond * 0}
 
-	return &k8sClient{
+	client := &k8sClient{
 		host:       "https://" + net.JoinHostPort(host, port),
 		token:      string(token),
 		httpClient: httpClient,
-	}, nil
+	}
+
+	// Create a new file watcher to listen for new Service Account tokens
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Op&fsnotify.Write == fsnotify.Write {
+					token, err := ioutil.ReadFile(serviceAccountToken)
+					if err == nil {
+						client.token = string(token)
+					}
+				}
+			case _, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+			}
+		}
+	}()
+
+	err = watcher.Add(serviceAccountToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return client, nil
 }
 
 // NewInsecureK8sClient creates an insecure k8s client which is suitable
