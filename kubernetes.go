@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -33,6 +34,7 @@ type K8sClient interface {
 type k8sClient struct {
 	host       string
 	token      string
+	tokenLck   sync.RWMutex
 	httpClient *http.Client
 }
 
@@ -44,6 +46,8 @@ func (kc *k8sClient) GetRequest(url string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+	kc.tokenLck.RLock()
+	defer kc.tokenLck.RUnlock()
 	if len(kc.token) > 0 {
 		req.Header.Set("Authorization", "Bearer "+kc.token)
 	}
@@ -56,6 +60,12 @@ func (kc *k8sClient) Do(req *http.Request) (*http.Response, error) {
 
 func (kc *k8sClient) Host() string {
 	return kc.host
+}
+
+func (kc *k8sClient) setToken(token string) {
+	kc.tokenLck.Lock()
+	defer kc.tokenLck.Unlock()
+	kc.token = token
 }
 
 // NewInClusterK8sClient creates K8sClient if it is inside Kubernetes
@@ -102,7 +112,7 @@ func NewInClusterK8sClient() (K8sClient, error) {
 				if event.Op&fsnotify.Write == fsnotify.Write {
 					token, err := ioutil.ReadFile(serviceAccountToken)
 					if err == nil {
-						client.token = string(token)
+						client.setToken(string(token))
 					}
 				}
 			case _, ok := <-watcher.Errors:
