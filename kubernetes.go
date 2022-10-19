@@ -109,6 +109,18 @@ func NewInClusterK8sClient() (K8sClient, error) {
 				if !ok {
 					return
 				}
+				// k8s configmaps uses symlinks, we need this workaround.
+				// original configmap file is removed
+				if event.Op == fsnotify.Remove || event.Op == fsnotify.Chmod {
+					// remove watcher since the file is removed
+					watcher.Remove(event.Name)
+					// add a new watcher pointing to the new symlink/file
+					watcher.Add(serviceAccountToken)
+					token, err := ioutil.ReadFile(serviceAccountToken)
+					if err == nil {
+						client.setToken(string(token))
+					}
+				}
 				if event.Op&fsnotify.Write == fsnotify.Write {
 					token, err := ioutil.ReadFile(serviceAccountToken)
 					if err == nil {
