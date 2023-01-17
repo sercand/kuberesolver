@@ -258,7 +258,7 @@ func (k *kResolver) resolve() {
 func (k *kResolver) watch() error {
 	defer k.wg.Done()
 	// watch endpoints lists existing endpoints at start
-	sw, err := watchEndpoints(k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
+	sw, err := watchEndpoints(k.ctx, k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
 	if err != nil {
 		return err
 	}
