@@ -1,6 +1,7 @@
 package kuberesolver
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -175,7 +176,7 @@ func getEndpoints(client K8sClient, namespace, targetName string) (Endpoints, er
 	return result, err
 }
 
-func watchEndpoints(client K8sClient, namespace, targetName string) (watchInterface, error) {
+func watchEndpoints(ctx context.Context, client K8sClient, namespace, targetName string) (watchInterface, error) {
 	u, err := url.Parse(fmt.Sprintf("%s/api/v1/watch/namespaces/%s/endpoints/%s",
 		client.Host(), namespace, targetName))
 	if err != nil {
@@ -185,6 +186,7 @@ func watchEndpoints(client K8sClient, namespace, targetName string) (watchInterf
 	if err != nil {
 		return nil, err
 	}
+	req = req.WithContext(ctx)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
