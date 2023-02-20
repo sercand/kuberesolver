@@ -75,7 +75,7 @@ type kubeBuilder struct {
 
 func parseResolverTarget(target resolver.Target) (targetInfo, error) {
 	// kubernetes://default/service:port
-	end := target.Endpoint
+	end := target.Endpoint()
 	snamespace := target.Authority
 	// kubernetes://service.default:port/
 	if end == "" {
