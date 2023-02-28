@@ -73,50 +73,55 @@ type kubeBuilder struct {
 	schema    string
 }
 
-func parseResolverTarget(target resolver.Target) (targetInfo, error) {
-	// kubernetes://default/service:port
-	end := target.Endpoint
-	snamespace := target.Authority
-	// kubernetes://service.default:port/
-	if end == "" {
-		end = target.Authority
-		snamespace = ""
-	}
-	ti := targetInfo{}
-	if end == "" {
-		return targetInfo{}, fmt.Errorf("target(%q) is empty", target)
-	}
-	var name string
-	var port string
-	if strings.LastIndex(end, ":") < 0 {
-		name = end
-		port = ""
-		ti.useFirstPort = true
-	} else {
-		var err error
-		name, port, err = net.SplitHostPort(end)
-		if err != nil {
-			return targetInfo{}, fmt.Errorf("target endpoint='%s' is invalid. grpc target is %#v, err=%v", end, target, err)
-		}
+func splitServicePortNamespace(hpn string) (service, port, namespace string) {
+	service = hpn
+
+	colon := strings.LastIndexByte(service, ':')
+	if colon != -1 {
+		service, port = service[:colon], service[colon+1:]
 	}
 
-	namesplit := strings.SplitN(name, ".", 2)
-	sname := name
-	if len(namesplit) == 2 {
-		sname = namesplit[0]
-		snamespace = namesplit[1]
+	dot := strings.LastIndexByte(service, '.')
+	if dot != -1 {
+		service, namespace = service[:dot], service[dot+1:]
 	}
-	ti.serviceName = sname
-	ti.serviceNamespace = snamespace
-	ti.port = port
-	if !ti.useFirstPort {
-		if _, err := strconv.Atoi(ti.port); err != nil {
-			ti.resolveByPortName = true
-		} else {
-			ti.resolveByPortName = false
-		}
+
+	return
+}
+
+func parseResolverTarget(target resolver.Target) (targetInfo, error) {
+	var service, port, namespace string
+	if target.URL.Host == "" {
+		// kubernetes:///service.namespace:port
+		service, port, namespace = splitServicePortNamespace(target.Endpoint())
+	} else if target.URL.Port() == "" && target.Endpoint() != "" {
+		// kubernetes://namespace/service:port
+		service, port, _ = splitServicePortNamespace(target.Endpoint())
+		namespace = target.URL.Hostname()
+	} else {
+		// kubernetes://service.namespace:port
+		service, port, namespace = splitServicePortNamespace(target.URL.Host)
 	}
-	return ti, nil
+
+	if service == "" {
+		return targetInfo{}, fmt.Errorf("target %s must specify a service", &target.URL)
+	}
+
+	resolveByPortName := false
+	useFirstPort := false
+	if port == "" {
+		useFirstPort = true
+	} else if _, err := strconv.Atoi(port); err != nil {
+		resolveByPortName = true
+	}
+
+	return targetInfo{
+		serviceName:       service,
+		serviceNamespace:  namespace,
+		port:              port,
+		resolveByPortName: resolveByPortName,
+		useFirstPort:      useFirstPort,
+	}, nil
 }
 
 // Build creates a new resolver for the given target.
