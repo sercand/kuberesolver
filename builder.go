@@ -74,48 +74,91 @@ type kubeBuilder struct {
 }
 
 func parseResolverTarget(target resolver.Target) (targetInfo, error) {
-	// kubernetes://default/service:port
-	end := target.Endpoint
-	snamespace := target.Authority
-	// kubernetes://service.default:port/
-	if end == "" {
-		end = target.Authority
-		snamespace = ""
+	var (
+		svc          string
+		ns           string
+		port         string
+		svcNSString  string
+		useFirstPort bool
+		viable       bool
+	)
+
+	t := target.URL
+
+	p := t.Path
+	if p == "" && t.Opaque != "" {
+		p = t.Opaque
 	}
-	ti := targetInfo{}
-	if end == "" {
-		return targetInfo{}, fmt.Errorf("target(%q) is empty", target)
-	}
-	var name string
-	var port string
-	if strings.LastIndex(end, ":") < 0 {
-		name = end
-		port = ""
-		ti.useFirstPort = true
-	} else {
-		var err error
-		name, port, err = net.SplitHostPort(end)
-		if err != nil {
-			return targetInfo{}, fmt.Errorf("target endpoint='%s' is invalid. grpc target is %#v, err=%v", end, target, err)
+	p = strings.TrimPrefix(p, "/")
+
+	if t.Host != "" && p != "" {
+		// kubernetes://default/service:port
+		if !strings.Contains(t.Host, ".") {
+			// no dots are permitted in this case in the hostname.
+			ns = t.Host
+			svcNSString = p
+			viable = true
+		}
+	} else if t.Host != "" && p == "" {
+		// kubernetes://service.default:port/
+		svcNSString = t.Host
+		viable = true
+	} else if t.Host == "" && p != "" {
+		// Special case kubernetes:///a/b:port and kubernetes:///a/b:80
+		// As url.Parse on "a/b" will interpret it entirely as path, not
+		// a host with a path.
+		if idx := strings.Index(p, "/"); idx > 0 {
+			ns = p[:idx]
+			svcNSString = p[idx+1:]
+			viable = true
+		} else {
+			// kubernetes:///service.default:port/
+			// kubernetes:///service-name:8080
+			// kubernetes:///service-name:portname
+			svcNSString = p
+			viable = true
 		}
 	}
 
-	namesplit := strings.SplitN(name, ".", 2)
-	sname := name
-	if len(namesplit) == 2 {
-		sname = namesplit[0]
-		snamespace = namesplit[1]
+	if !viable {
+		return targetInfo{}, fmt.Errorf("target(%v) is empty", target.URL)
 	}
-	ti.serviceName = sname
-	ti.serviceNamespace = snamespace
-	ti.port = port
-	if !ti.useFirstPort {
-		if _, err := strconv.Atoi(ti.port); err != nil {
-			ti.resolveByPortName = true
-		} else {
-			ti.resolveByPortName = false
+
+	// if svcNSString is not empty, parse it.
+	if idx := strings.Index(svcNSString, "."); idx > 0 {
+		svc, ns = svcNSString[:idx], svcNSString[idx+1:]
+		if idx := strings.Index(ns, ":"); idx > 0 {
+			svc = svc + ns[idx:]
+			ns = ns[:idx]
 		}
+	} else {
+		svc = svcNSString
 	}
+
+	if strings.Contains(svc, ":") {
+		var (
+			err  error
+			name string
+		)
+		name, port, err = net.SplitHostPort(svc)
+		if err == nil {
+			svc = name
+		}
+	} else {
+		useFirstPort = true
+	}
+
+	var ti targetInfo
+	ti.serviceName = svc
+	ti.serviceNamespace = ns
+	ti.port = port
+	ti.useFirstPort = useFirstPort
+
+	if ti.port != "" {
+		_, err := strconv.Atoi(ti.port)
+		ti.resolveByPortName = err != nil
+	}
+
 	return ti, nil
 }
 

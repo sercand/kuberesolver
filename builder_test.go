@@ -3,6 +3,7 @@ package kuberesolver
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -20,8 +21,8 @@ type fakeConn struct {
 	found []string
 }
 
-func (fc *fakeConn) UpdateState(resolver.State) {
-
+func (fc *fakeConn) UpdateState(resolver.State) error {
+	return nil
 }
 
 func (fc *fakeConn) ReportError(e error) {
@@ -54,7 +55,11 @@ func TestBuilder(t *testing.T) {
 	fc := &fakeConn{
 		cmp: make(chan struct{}),
 	}
-	rs, err := bl.Build(resolver.Target{Endpoint: "kube-dns.kube-system:53", Scheme: "kubernetes", Authority: ""}, fc, resolver.BuildOptions{})
+	endURL, err := url.Parse("kubernetes://kube-dns.kube-system:53")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := bl.Build(resolver.Target{URL: *endURL}, fc, resolver.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,19 +88,23 @@ func split2(s, sep string) (string, string, bool) {
 // ParseTarget splits target into a resolver.Target struct containing scheme,
 // authority and endpoint.
 //
-// If target is not a valid scheme://authority/endpoint, it returns {Endpoint:
-// target}.
+// As a special case if target contains a named port like "foo:port"
+// we manually handle that as url.Parse does NOT like named ports that
+// aren't numeric.
 func parseTarget(target string) (ret resolver.Target) {
-	var ok bool
-	ret.Scheme, ret.Endpoint, ok = split2(target, "://")
-	if !ok {
-		return resolver.Target{Endpoint: target}
+	newTarget := strings.Replace(target, ":port", ":443", 1)
+	isNamedPort := newTarget != target
+
+	tURL, err := url.Parse(newTarget)
+	if err != nil {
+		return resolver.Target{URL: url.URL{Path: target}}
 	}
-	ret.Authority, ret.Endpoint, ok = split2(ret.Endpoint, "/")
-	if !ok {
-		return resolver.Target{Endpoint: target}
+
+	if isNamedPort {
+		tURL.Host = strings.Replace(tURL.Host, ":443", ":port", 1)
+		tURL.Path = strings.Replace(tURL.Path, ":443", ":port", 1)
 	}
-	return ret
+	return resolver.Target{URL: *tURL}
 }
 
 func TestParseResolverTarget(t *testing.T) {
@@ -104,30 +113,38 @@ func TestParseResolverTarget(t *testing.T) {
 		want   targetInfo
 		err    bool
 	}{
-		{resolver.Target{"", "", ""}, targetInfo{"", "", "", false, false}, true},
-		{resolver.Target{"", "a", ""}, targetInfo{"a", "", "", false, true}, false},
-		{resolver.Target{"", "", "a"}, targetInfo{"a", "", "", false, true}, false},
-		{resolver.Target{"", "a", "b"}, targetInfo{"b", "a", "", false, true}, false},
-		{resolver.Target{"", "a.b", ""}, targetInfo{"a", "b", "", false, true}, false},
-		{resolver.Target{"", "", "a.b"}, targetInfo{"a", "b", "", false, true}, false},
-		{resolver.Target{"", "", "a.b:80"}, targetInfo{"a", "b", "80", false, false}, false},
-		{resolver.Target{"", "", "a.b:port"}, targetInfo{"a", "b", "port", true, false}, false},
-		{resolver.Target{"", "a", "b:port"}, targetInfo{"b", "a", "port", true, false}, false},
-		{resolver.Target{"", "b.a:port", ""}, targetInfo{"b", "a", "port", true, false}, false},
-		{resolver.Target{"", "b.a:80", ""}, targetInfo{"b", "a", "80", false, false}, false},
+		{resolver.Target{URL: url.URL{}}, targetInfo{"", "", "", false, false}, true},
+		{resolver.Target{URL: url.URL{Path: "a"}}, targetInfo{"a", "", "", false, true}, false},
+		{resolver.Target{URL: url.URL{Host: "a"}}, targetInfo{"a", "", "", false, true}, false},
+		{resolver.Target{URL: url.URL{Path: "a/b"}}, targetInfo{"b", "a", "", false, true}, false},
+		{resolver.Target{URL: url.URL{Host: "a.b"}}, targetInfo{"a", "b", "", false, true}, false},
+		{resolver.Target{URL: url.URL{Path: "/a.b"}}, targetInfo{"a", "b", "", false, true}, false},
+		{resolver.Target{URL: url.URL{Host: "a.b:80"}}, targetInfo{"a", "b", "80", false, false}, false},
+		{resolver.Target{URL: url.URL{Path: "a.b:80"}}, targetInfo{"a", "b", "80", false, false}, false},
+		{resolver.Target{URL: url.URL{Host: "a.b:port"}}, targetInfo{"a", "b", "port", true, false}, false},
+		{resolver.Target{URL: url.URL{Path: "a.b:port"}}, targetInfo{"a", "b", "port", true, false}, false},
+		{resolver.Target{URL: url.URL{Path: "/a.b:port"}}, targetInfo{"a", "b", "port", true, false}, false},
+		{resolver.Target{URL: url.URL{Host: "a", Path: "b:port"}}, targetInfo{"b", "a", "port", true, false}, false},
+		{resolver.Target{URL: url.URL{Host: "a", Path: "/b:port"}}, targetInfo{"b", "a", "port", true, false}, false},
+		{resolver.Target{URL: url.URL{Host: "b.a:80"}}, targetInfo{"b", "a", "80", false, false}, false},
+		{resolver.Target{URL: url.URL{Host: "b.a:port"}}, targetInfo{"b", "a", "port", true, false}, false},
 	} {
-		got, err := parseResolverTarget(test.target)
-		if err == nil && test.err {
-			t.Errorf("case %d: want error but got nil", i)
-			continue
-		}
-		if err != nil && !test.err {
-			t.Errorf("case %d: got '%v' error but don't want an error", i, err)
-			continue
-		}
-		if got != test.want {
-			t.Errorf("case %d parseTarget(%q) = %+v, want %+v", i, test.target, got, test.want)
-		}
+		t.Run(fmt.Sprintf("case %d", i), func(t *testing.T) {
+			got, err := parseResolverTarget(test.target)
+
+			if err == nil && test.err {
+				t.Errorf("want error but got nil")
+				return
+			}
+			if err != nil && !test.err {
+				t.Errorf("got '%v' error but don't want an error", err)
+				return
+			}
+			if got != test.want {
+				t.Errorf("parseResolverTarget(%q) = %+v, want %+v", test.target.URL.String(), got, test.want)
+				return
+			}
+		})
 	}
 }
 
@@ -139,7 +156,7 @@ func TestParseTargets(t *testing.T) {
 	}{
 		{"", targetInfo{}, true},
 		{"kubernetes:///", targetInfo{}, true},
-		{"kubernetes://a:30", targetInfo{}, true},
+		{"kubernetes://a:30", targetInfo{"a", "", "30", false, false}, false},
 		{"kubernetes://a/", targetInfo{"a", "", "", false, true}, false},
 		{"kubernetes:///a", targetInfo{"a", "", "", false, true}, false},
 		{"kubernetes://a/b", targetInfo{"b", "a", "", false, true}, false},
@@ -151,17 +168,20 @@ func TestParseTargets(t *testing.T) {
 		{"kubernetes://a.x:port/", targetInfo{"a", "x", "port", true, false}, false},
 		{"kubernetes://a.x:30/", targetInfo{"a", "x", "30", false, false}, false},
 	} {
-		got, err := parseResolverTarget(parseTarget(test.target))
-		if err == nil && test.err {
-			t.Errorf("case %d: want error but got nil", i)
-			continue
-		}
-		if err != nil && !test.err {
-			t.Errorf("case %d:got '%v' error but don't want an error", i, err)
-			continue
-		}
-		if got != test.want {
-			t.Errorf("case %d: parseTarget(%q) = %+v, want %+v", i, test.target, got, test.want)
-		}
+		t.Run(fmt.Sprintf("case %d", i), func(t *testing.T) {
+			got, err := parseResolverTarget(parseTarget(test.target))
+			if err == nil && test.err {
+				t.Errorf("case %d: want error but got nil", i)
+				return
+			}
+			if err != nil && !test.err {
+				t.Errorf("%q got '%v' error but don't want an error", test.target, err)
+				return
+			}
+			if got != test.want {
+				t.Errorf("parseResolverTarget(%q) = %+v, want %+v", test.target, got, test.want)
+			}
+			return
+		})
 	}
 }
