@@ -9,7 +9,7 @@ It comes with a small ~250 LOC kubernetes client to find service endpoints. Ther
 ```go
 
 // Import the module
-import "github.com/sercand/kuberesolver/v3"
+import "github.com/sercand/kuberesolver/v4"
 	
 // Register kuberesolver to grpc before calling grpc.Dial
 kuberesolver.RegisterInCluster()
