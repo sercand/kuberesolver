@@ -3,6 +3,7 @@ package kuberesolver
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -20,8 +21,8 @@ type fakeConn struct {
 	found []string
 }
 
-func (fc *fakeConn) UpdateState(resolver.State) {
-
+func (fc *fakeConn) UpdateState(resolver.State) error {
+	return nil
 }
 
 func (fc *fakeConn) ReportError(e error) {
@@ -54,7 +55,7 @@ func TestBuilder(t *testing.T) {
 	fc := &fakeConn{
 		cmp: make(chan struct{}),
 	}
-	rs, err := bl.Build(resolver.Target{Endpoint: "kube-dns.kube-system:53", Scheme: "kubernetes", Authority: ""}, fc, resolver.BuildOptions{})
+	rs, err := bl.Build(parseTarget("kubernetes://kube-dns.kube-system:53"), fc, resolver.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,22 +81,22 @@ func split2(s, sep string) (string, string, bool) {
 	return spl[0], spl[1], true
 }
 
-// ParseTarget splits target into a resolver.Target struct containing scheme,
-// authority and endpoint.
-//
-// If target is not a valid scheme://authority/endpoint, it returns {Endpoint:
-// target}.
-func parseTarget(target string) (ret resolver.Target) {
-	var ok bool
-	ret.Scheme, ret.Endpoint, ok = split2(target, "://")
-	if !ok {
-		return resolver.Target{Endpoint: target}
+func parseTarget(target string) resolver.Target {
+	u, err := url.Parse(target)
+	if err != nil {
+		panic(err)
 	}
-	ret.Authority, ret.Endpoint, ok = split2(ret.Endpoint, "/")
-	if !ok {
-		return resolver.Target{Endpoint: target}
+
+	scheme := u.Scheme
+	if scheme == "" {
+		scheme = "kubernetes"
 	}
-	return ret
+
+	return resolver.Target{
+		Scheme:    scheme,
+		Authority: u.Host,
+		URL:       *u,
+	}
 }
 
 func TestParseResolverTarget(t *testing.T) {
@@ -104,17 +105,17 @@ func TestParseResolverTarget(t *testing.T) {
 		want   targetInfo
 		err    bool
 	}{
-		{resolver.Target{"", "", ""}, targetInfo{"", "", "", false, false}, true},
-		{resolver.Target{"", "a", ""}, targetInfo{"a", "", "", false, true}, false},
-		{resolver.Target{"", "", "a"}, targetInfo{"a", "", "", false, true}, false},
-		{resolver.Target{"", "a", "b"}, targetInfo{"b", "a", "", false, true}, false},
-		{resolver.Target{"", "a.b", ""}, targetInfo{"a", "b", "", false, true}, false},
-		{resolver.Target{"", "", "a.b"}, targetInfo{"a", "b", "", false, true}, false},
-		{resolver.Target{"", "", "a.b:80"}, targetInfo{"a", "b", "80", false, false}, false},
-		{resolver.Target{"", "", "a.b:port"}, targetInfo{"a", "b", "port", true, false}, false},
-		{resolver.Target{"", "a", "b:port"}, targetInfo{"b", "a", "port", true, false}, false},
-		{resolver.Target{"", "b.a:port", ""}, targetInfo{"b", "a", "port", true, false}, false},
-		{resolver.Target{"", "b.a:80", ""}, targetInfo{"b", "a", "80", false, false}, false},
+		{parseTarget("/"), targetInfo{"", "", "", false, false}, true},
+		{parseTarget("a"), targetInfo{"a", "", "", false, true}, false},
+		{parseTarget("/a"), targetInfo{"a", "", "", false, true}, false},
+		{parseTarget("//a/b"), targetInfo{"b", "a", "", false, true}, false},
+		{parseTarget("a.b"), targetInfo{"a", "b", "", false, true}, false},
+		{parseTarget("/a.b"), targetInfo{"a", "b", "", false, true}, false},
+		{parseTarget("/a.b:80"), targetInfo{"a", "b", "80", false, false}, false},
+		{parseTarget("/a.b:port"), targetInfo{"a", "b", "port", true, false}, false},
+		{parseTarget("//a/b:port"), targetInfo{"b", "a", "port", true, false}, false},
+		{parseTarget("//a/b:port"), targetInfo{"b", "a", "port", true, false}, false},
+		{parseTarget("//a/b:80"), targetInfo{"b", "a", "80", false, false}, false},
 	} {
 		got, err := parseResolverTarget(test.target)
 		if err == nil && test.err {
@@ -126,7 +127,7 @@ func TestParseResolverTarget(t *testing.T) {
 			continue
 		}
 		if got != test.want {
-			t.Errorf("case %d parseTarget(%q) = %+v, want %+v", i, test.target, got, test.want)
+			t.Errorf("case %d parseResolverTarget(%q) = %+v, want %+v", i, &test.target.URL, got, test.want)
 		}
 	}
 }
@@ -139,7 +140,7 @@ func TestParseTargets(t *testing.T) {
 	}{
 		{"", targetInfo{}, true},
 		{"kubernetes:///", targetInfo{}, true},
-		{"kubernetes://a:30", targetInfo{}, true},
+		{"kubernetes://a:30", targetInfo{"a", "", "30", false, false}, false},
 		{"kubernetes://a/", targetInfo{"a", "", "", false, true}, false},
 		{"kubernetes:///a", targetInfo{"a", "", "", false, true}, false},
 		{"kubernetes://a/b", targetInfo{"b", "a", "", false, true}, false},
@@ -148,7 +149,6 @@ func TestParseTargets(t *testing.T) {
 		{"kubernetes:///a.b:port", targetInfo{"a", "b", "port", true, false}, false},
 		{"kubernetes:///a:port", targetInfo{"a", "", "port", true, false}, false},
 		{"kubernetes://x/a:port", targetInfo{"a", "x", "port", true, false}, false},
-		{"kubernetes://a.x:port/", targetInfo{"a", "x", "port", true, false}, false},
 		{"kubernetes://a.x:30/", targetInfo{"a", "x", "30", false, false}, false},
 	} {
 		got, err := parseResolverTarget(parseTarget(test.target))
