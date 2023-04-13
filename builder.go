@@ -81,9 +81,13 @@ func splitServicePortNamespace(hpn string) (service, port, namespace string) {
 		service, port = service[:colon], service[colon+1:]
 	}
 
-	dot := strings.LastIndexByte(service, '.')
-	if dot != -1 {
-		service, namespace = service[:dot], service[dot+1:]
+	// we want to split into the service name, namespace, and whatever else is left
+	// this will support fully qualified service names, e.g. {service-name}.<namespace>.svc.<cluster-domain-name>.
+	// Note that since we lookup the endpoints by service name and namespace, we don't care about the
+	// cluster-domain-name, only that we can parse out the service name and namespace properly.
+	parts := strings.SplitN(service, ".", 3)
+	if len(parts) >= 2 {
+		service, namespace = parts[0], parts[1]
 	}
 
 	return

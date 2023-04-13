@@ -29,7 +29,7 @@ func (fc *fakeConn) ReportError(e error) {
 	log.Println(e)
 }
 
-func (fc *fakeConn) ParseServiceConfig(serviceConfigJSON string) *serviceconfig.ParseResult {
+func (fc *fakeConn) ParseServiceConfig(_ string) *serviceconfig.ParseResult {
 	return &serviceconfig.ParseResult{
 		Config: nil,
 		Err:    fmt.Errorf("no implementation for ParseServiceConfig"),
@@ -116,6 +116,11 @@ func TestParseResolverTarget(t *testing.T) {
 		{parseTarget("//a/b:port"), targetInfo{"b", "a", "port", true, false}, false},
 		{parseTarget("//a/b:port"), targetInfo{"b", "a", "port", true, false}, false},
 		{parseTarget("//a/b:80"), targetInfo{"b", "a", "80", false, false}, false},
+		{parseTarget("a.b.svc.cluster.local"), targetInfo{"a", "b", "", false, true}, false},
+		{parseTarget("/a.b.svc.cluster.local:80"), targetInfo{"a", "b", "80", false, false}, false},
+		{parseTarget("/a.b.svc.cluster.local:port"), targetInfo{"a", "b", "port", true, false}, false},
+		{parseTarget("//a.b.svc.cluster.local"), targetInfo{"a", "b", "", false, true}, false},
+		{parseTarget("//a.b.svc.cluster.local:80"), targetInfo{"a", "b", "80", false, false}, false},
 	} {
 		got, err := parseResolverTarget(test.target)
 		if err == nil && test.err {
@@ -150,6 +155,11 @@ func TestParseTargets(t *testing.T) {
 		{"kubernetes:///a:port", targetInfo{"a", "", "port", true, false}, false},
 		{"kubernetes://x/a:port", targetInfo{"a", "x", "port", true, false}, false},
 		{"kubernetes://a.x:30/", targetInfo{"a", "x", "30", false, false}, false},
+		{"kubernetes://a.b.svc.cluster.local", targetInfo{"a", "b", "", false, true}, false},
+		{"kubernetes://a.b.svc.cluster.local:80", targetInfo{"a", "b", "80", false, false}, false},
+		{"kubernetes:///a.b.svc.cluster.local", targetInfo{"a", "b", "", false, true}, false},
+		{"kubernetes:///a.b.svc.cluster.local:80", targetInfo{"a", "b", "80", false, false}, false},
+		{"kubernetes:///a.b.svc.cluster.local:port", targetInfo{"a", "b", "port", true, false}, false},
 	} {
 		got, err := parseResolverTarget(parseTarget(test.target))
 		if err == nil && test.err {

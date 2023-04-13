@@ -27,12 +27,16 @@ An url can be one of the following, [grpc naming docs](https://github.com/grpc/g
 kubernetes:///service-name:8080
 kubernetes:///service-name:portname
 kubernetes:///service-name.namespace:8080
+kubernetes:///service-name.namespace.svc.cluster_name
+kubernetes:///service-name.namespace.svc.cluster_name:8080
 
 kubernetes://namespace/service-name:8080
 kubernetes://service-name:8080/
 kubernetes://service-name.namespace:8080/
-
+kubernetes://service-name.namespace.svc.cluster_name
+kubernetes://service-name.namespace.svc.cluster_name:8080
 ```
+_* Please note that the cluster_name is not used in resolving the endpoints of a Service. It is only there to support fully qualified service names, e.g._ `test.default.svc.cluster.local`.
 
 ### Using alternative Schema
 
