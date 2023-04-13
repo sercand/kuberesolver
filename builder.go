@@ -73,12 +73,9 @@ type kubeBuilder struct {
 	schema    string
 }
 
-func splitServicePortNamespace(hpn string) (string, string, string) {
-	var (
-		service   = hpn
-		port      string
-		namespace string
-	)
+func splitServicePortNamespace(hpn string) (service, port, namespace string) {
+	service = hpn
+
 	colon := strings.LastIndexByte(service, ':')
 	if colon != -1 {
 		service, port = service[:colon], service[colon+1:]
@@ -93,7 +90,7 @@ func splitServicePortNamespace(hpn string) (string, string, string) {
 		service, namespace = parts[0], parts[1]
 	}
 
-	return service, port, namespace
+	return
 }
 
 func parseResolverTarget(target resolver.Target) (targetInfo, error) {
