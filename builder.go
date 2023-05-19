@@ -246,7 +246,11 @@ func (k *kResolver) handle(e Endpoints) {
 	result, _ := k.makeAddresses(e)
 	//	k.cc.NewServiceConfig(sc)
 	if len(result) > 0 {
-		k.cc.NewAddress(result)
+		//k.cc.NewAddress(result)
+		err := k.cc.UpdateState(resolver.State{Addresses: result})
+		if err != nil {
+			grpclog.Errorf("kuberesolver: update state failed: %v", err)
+		}
 	}
 
 	k.endpoints.Set(float64(len(e.Subsets)))
@@ -278,7 +282,7 @@ func (k *kResolver) watch() error {
 		case <-k.t.C:
 			k.resolve()
 		case <-k.rn:
-			k.resolve()
+			//k.resolve()
 		case up, hasMore := <-sw.ResultChan():
 			if hasMore {
 				k.handle(up.Object)
