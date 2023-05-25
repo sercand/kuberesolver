@@ -167,7 +167,7 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		if err != nil && err != io.EOF {
 			grpclog.Errorf("kuberesolver: watching ended with error='%v', will reconnect again", err)
 		}
-	}, time.Second, ctx.Done())
+	}, time.Second, time.Second*30, ctx.Done())
 	return r, nil
 }
 
@@ -278,7 +278,7 @@ func (k *kResolver) watch() error {
 		case <-k.t.C:
 			k.resolve()
 		case <-k.rn:
-			k.resolve()
+			//k.resolve()
 		case up, hasMore := <-sw.ResultChan():
 			if hasMore {
 				k.handle(up.Object)
