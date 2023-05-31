@@ -87,15 +87,8 @@ func parseTarget(target string) resolver.Target {
 		panic(err)
 	}
 
-	scheme := u.Scheme
-	if scheme == "" {
-		scheme = "kubernetes"
-	}
-
 	return resolver.Target{
-		Scheme:    scheme,
-		Authority: u.Host,
-		URL:       *u,
+		URL: *u,
 	}
 }
 
