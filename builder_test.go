@@ -55,7 +55,7 @@ func TestBuilder(t *testing.T) {
 	fc := &fakeConn{
 		cmp: make(chan struct{}),
 	}
-	_, err = bl.Build(parseTarget("kubernetes://kube-dns.kube-system:53"), fc, resolver.BuildOptions{})
+	_, err := bl.Build(parseTarget("kubernetes://kube-dns.kube-system:53"), fc, resolver.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,15 +87,8 @@ func parseTarget(target string) resolver.Target {
 		panic(err)
 	}
 
-	scheme := u.Scheme
-	if scheme == "" {
-		scheme = "kubernetes"
-	}
-
 	return resolver.Target{
-		Scheme:    scheme,
-		Authority: u.Host,
-		URL:       *u,
+		URL: *u,
 	}
 }
 
