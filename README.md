@@ -36,7 +36,7 @@ kubernetes://service-name.namespace:8080/
 kubernetes://service-name.namespace.svc.cluster_name
 kubernetes://service-name.namespace.svc.cluster_name:8080
 ```
-_* Please note that the cluster_name is not used in resolving the endpoints of a Service. It is only there to support fully qualified service names, e.g._ `test.default.svc.cluster.local`.
+_* Please note that the cluster_name is not used in resolving the endpoints of a Service. It is only there to support fully qualified service names, e.g.: `test.default.svc.cluster.local`.
 
 ### Using alternative Schema
 
@@ -56,7 +56,7 @@ This will create subconnections for each available service endpoints.
 Connecting to a service by dialing to `service.namespace:8080` uses DNS and it returns service stable IP. Therefore, gRPC doesn't know the endpoint IP addresses and it fails to reconnect to target services in case of failure.  
 
 Kuberesolver uses kubernetes API to get and watch service endpoint IP addresses. 
-Since it provides and updates all available service endpoints, together with a client-side balancer you can achive zero downtime deployments.
+Since it provides and updates all available service endpoints, together with a client-side balancer you can achieve zero downtime deployments.
 
 ### RBAC
 

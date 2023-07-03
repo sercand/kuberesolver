@@ -1,24 +1,34 @@
 package kuberesolver
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/url"
-	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/serviceconfig"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
-func newTestBuilder() resolver.Builder {
-	cl := NewInsecureK8sClient("http://127.0.0.1:8001")
-	return NewBuilder(cl, kubernetesSchema)
+func newTestBuilder(t *testing.T) (resolver.Builder, *fake.Clientset) {
+	cl := fake.NewSimpleClientset()
+	builder, err := NewBuilder(ClusterOptions{
+		KubeClient: cl,
+	})
+	require.NoError(t, err)
+	return builder, cl
 }
 
 type fakeConn struct {
 	cmp   chan struct{}
 	found []string
+	t     *testing.T
 }
 
 func (fc *fakeConn) UpdateState(resolver.State) error {
@@ -37,11 +47,9 @@ func (fc *fakeConn) ParseServiceConfig(_ string) *serviceconfig.ParseResult {
 }
 
 func (fc *fakeConn) NewAddress(addresses []resolver.Address) {
-	for i, a := range addresses {
+	for _, a := range addresses {
 		fc.found = append(fc.found, a.Addr)
-		fmt.Printf("%d, address: %s\n", i, a.Addr)
-		fmt.Printf("%d, servername: %s\n", i, a.ServerName)
-		fmt.Printf("%d, type: %+v\n", i, a.Type)
+		fc.t.Logf("address: %q, servername: %q", a.Addr, a.ServerName)
 	}
 	fc.cmp <- struct{}{}
 }
@@ -50,42 +58,109 @@ func (*fakeConn) NewServiceConfig(serviceConfig string) {
 	fmt.Printf("serviceConfig: %s\n", serviceConfig)
 }
 
-func TestBuilder(t *testing.T) {
-	bl := newTestBuilder()
+func TestBuilderWithExplicitPort(t *testing.T) {
+	b, client := newTestBuilder(t)
 	fc := &fakeConn{
 		cmp: make(chan struct{}),
+		t:   t,
 	}
-	_, err := bl.Build(parseTarget("kubernetes://kube-dns.kube-system:53"), fc, resolver.BuildOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+
+	client.CoreV1().Endpoints("test-namespace").Create(context.Background(), &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "service",
+			Namespace: "test-namespace",
+		},
+		Subsets: []corev1.EndpointSubset{
+			{
+				Addresses: []corev1.EndpointAddress{
+					{
+						IP: "1.1.1.1",
+					},
+					{
+						IP: "2.2.2.2",
+					},
+				},
+				NotReadyAddresses: []corev1.EndpointAddress{
+					{
+						IP: "3.3.3.3",
+					},
+				},
+				Ports: []corev1.EndpointPort{
+					{
+						Name:     "http",
+						Port:     8080,
+						Protocol: "TCP",
+					},
+					{
+						Name:     "http",
+						Port:     53,
+						Protocol: "TCP",
+					},
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+
+	_, err := b.Build(parseTarget(t, "kubernetes://service.test-namespace:53"), fc, resolver.BuildOptions{})
+	require.NoError(t, err)
 	<-fc.cmp
-	if len(fc.found) == 0 {
-		t.Fatal("could not found endpoints")
-	}
-// 	fmt.Printf("ResolveNow \n")
-// 	rs.ResolveNow(resolver.ResolveNowOptions{})
-// 	<-fc.cmp
-
+	assert.ElementsMatch(t, []string{"1.1.1.1:53", "2.2.2.2:53"}, fc.found)
 }
 
-// copied from grpc package to test parsing endpoints
-
-// split2 returns the values from strings.SplitN(s, sep, 2).
-// If sep is not found, it returns ("", "", false) instead.
-func split2(s, sep string) (string, string, bool) {
-	spl := strings.SplitN(s, sep, 2)
-	if len(spl) < 2 {
-		return "", "", false
+func TestBuilderWithImplicitPort(t *testing.T) {
+	b, client := newTestBuilder(t)
+	fc := &fakeConn{
+		cmp: make(chan struct{}),
+		t:   t,
 	}
-	return spl[0], spl[1], true
+
+	client.CoreV1().Endpoints("test-namespace").Create(context.Background(), &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "service",
+			Namespace: "test-namespace",
+		},
+		Subsets: []corev1.EndpointSubset{
+			{
+				Addresses: []corev1.EndpointAddress{
+					{
+						IP: "1.1.1.1",
+					},
+					{
+						IP: "2.2.2.2",
+					},
+				},
+				NotReadyAddresses: []corev1.EndpointAddress{
+					{
+						IP: "3.3.3.3",
+					},
+				},
+				Ports: []corev1.EndpointPort{
+					{
+						Name:     "http",
+						Port:     8080,
+						Protocol: "TCP",
+					},
+
+					{
+						Name:     "http",
+						Port:     53,
+						Protocol: "TCP",
+					},
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+
+	_, err := b.Build(parseTarget(t, "kubernetes://service.test-namespace"), fc, resolver.BuildOptions{})
+	require.NoError(t, err)
+	<-fc.cmp
+	assert.ElementsMatch(t, []string{"1.1.1.1:8080", "2.2.2.2:8080"}, fc.found)
 }
 
-func parseTarget(target string) resolver.Target {
+// parseTarget is copied from grpc package to test parsing endpoints.
+func parseTarget(t testing.TB, target string) resolver.Target {
 	u, err := url.Parse(target)
-	if err != nil {
-		panic(err)
-	}
+	require.NoError(t, err)
 
 	return resolver.Target{
 		URL: *u,
@@ -98,22 +173,22 @@ func TestParseResolverTarget(t *testing.T) {
 		want   targetInfo
 		err    bool
 	}{
-		{parseTarget("/"), targetInfo{"", "", "", false, false}, true},
-		{parseTarget("a"), targetInfo{"a", "", "", false, true}, false},
-		{parseTarget("/a"), targetInfo{"a", "", "", false, true}, false},
-		{parseTarget("//a/b"), targetInfo{"b", "a", "", false, true}, false},
-		{parseTarget("a.b"), targetInfo{"a", "b", "", false, true}, false},
-		{parseTarget("/a.b"), targetInfo{"a", "b", "", false, true}, false},
-		{parseTarget("/a.b:80"), targetInfo{"a", "b", "80", false, false}, false},
-		{parseTarget("/a.b:port"), targetInfo{"a", "b", "port", true, false}, false},
-		{parseTarget("//a/b:port"), targetInfo{"b", "a", "port", true, false}, false},
-		{parseTarget("//a/b:port"), targetInfo{"b", "a", "port", true, false}, false},
-		{parseTarget("//a/b:80"), targetInfo{"b", "a", "80", false, false}, false},
-		{parseTarget("a.b.svc.cluster.local"), targetInfo{"a", "b", "", false, true}, false},
-		{parseTarget("/a.b.svc.cluster.local:80"), targetInfo{"a", "b", "80", false, false}, false},
-		{parseTarget("/a.b.svc.cluster.local:port"), targetInfo{"a", "b", "port", true, false}, false},
-		{parseTarget("//a.b.svc.cluster.local"), targetInfo{"a", "b", "", false, true}, false},
-		{parseTarget("//a.b.svc.cluster.local:80"), targetInfo{"a", "b", "80", false, false}, false},
+		{parseTarget(t, "/"), targetInfo{"", "", "", false, false}, true},
+		{parseTarget(t, "a"), targetInfo{"a", "", "", false, true}, false},
+		{parseTarget(t, "/a"), targetInfo{"a", "", "", false, true}, false},
+		{parseTarget(t, "//a/b"), targetInfo{"b", "a", "", false, true}, false},
+		{parseTarget(t, "a.b"), targetInfo{"a", "b", "", false, true}, false},
+		{parseTarget(t, "/a.b"), targetInfo{"a", "b", "", false, true}, false},
+		{parseTarget(t, "/a.b:80"), targetInfo{"a", "b", "80", false, false}, false},
+		{parseTarget(t, "/a.b:port"), targetInfo{"a", "b", "port", true, false}, false},
+		{parseTarget(t, "//a/b:port"), targetInfo{"b", "a", "port", true, false}, false},
+		{parseTarget(t, "//a/b:port"), targetInfo{"b", "a", "port", true, false}, false},
+		{parseTarget(t, "//a/b:80"), targetInfo{"b", "a", "80", false, false}, false},
+		{parseTarget(t, "a.b.svc.cluster.local"), targetInfo{"a", "b", "", false, true}, false},
+		{parseTarget(t, "/a.b.svc.cluster.local:80"), targetInfo{"a", "b", "80", false, false}, false},
+		{parseTarget(t, "/a.b.svc.cluster.local:port"), targetInfo{"a", "b", "port", true, false}, false},
+		{parseTarget(t, "//a.b.svc.cluster.local"), targetInfo{"a", "b", "", false, true}, false},
+		{parseTarget(t, "//a.b.svc.cluster.local:80"), targetInfo{"a", "b", "80", false, false}, false},
 	} {
 		got, err := parseResolverTarget(test.target)
 		if err == nil && test.err {
@@ -154,7 +229,7 @@ func TestParseTargets(t *testing.T) {
 		{"kubernetes:///a.b.svc.cluster.local:80", targetInfo{"a", "b", "80", false, false}, false},
 		{"kubernetes:///a.b.svc.cluster.local:port", targetInfo{"a", "b", "port", true, false}, false},
 	} {
-		got, err := parseResolverTarget(parseTarget(test.target))
+		got, err := parseResolverTarget(parseTarget(t, test.target))
 		if err == nil && test.err {
 			t.Errorf("case %d: want error but got nil", i)
 			continue

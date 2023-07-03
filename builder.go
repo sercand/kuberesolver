@@ -3,7 +3,6 @@ package kuberesolver
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -11,31 +10,20 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/resolver"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 )
 
 const (
 	kubernetesSchema = "kubernetes"
 	defaultFreq      = time.Minute * 30
-)
-
-var (
-	endpointsForTarget = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "kuberesolver_endpoints_total",
-			Help: "The number of endpoints for a given target",
-		},
-		[]string{"target"},
-	)
-	addressesForTarget = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "kuberesolver_addresses_total",
-			Help: "The number of addresses for a given target",
-		},
-		[]string{"target"},
-	)
+	resyncDisabled   = 0
 )
 
 type targetInfo struct {
@@ -50,27 +38,94 @@ func (ti targetInfo) String() string {
 	return fmt.Sprintf("kubernetes://%s/%s:%s", ti.serviceNamespace, ti.serviceName, ti.port)
 }
 
-// RegisterInCluster registers the kuberesolver builder to grpc with kubernetes schema
-func RegisterInCluster() {
-	RegisterInClusterWithSchema(kubernetesSchema)
+// RegisterInCluster registers the kuberesolver builder to grpc with kubernetes schema.
+func RegisterInCluster() error {
+	return RegisterInClusterWithOptions(ClusterOptions{})
 }
 
-// RegisterInClusterWithSchema registers the kuberesolver builder to the grpc with custom schema
-func RegisterInClusterWithSchema(schema string) {
-	resolver.Register(NewBuilder(nil, schema))
+// RegisterInClusterWithSchema registers the kuberesolver builder to the grpc with custom schema.
+func RegisterInClusterWithSchema(schema string) error {
+	builder, err := NewBuilder(ClusterOptions{
+		Schema: schema,
+	})
+	if err != nil {
+		return err
+	}
+	resolver.Register(builder)
+	return nil
+}
+
+type ClusterOptions struct {
+	// Schema defaults to kubernetesSchema.
+	Schema string
+	// KubeClient defaults to an in cluster client.
+	KubeClient kubernetes.Interface
+	// PromRegister will default to the global registry unless
+	// passed.
+	PromRegister prometheus.Registerer
+}
+
+func RegisterInClusterWithOptions(opts ClusterOptions) error {
+	builder, err := NewBuilder(opts)
+	if err != nil {
+		return err
+	}
+	resolver.Register(builder)
+	return nil
 }
 
 // NewBuilder creates a kubeBuilder which is used by grpc resolver.
-func NewBuilder(client K8sClient, schema string) resolver.Builder {
-	return &kubeBuilder{
-		k8sClient: client,
-		schema:    schema,
+func NewBuilder(opts ClusterOptions) (resolver.Builder, error) {
+	if opts.Schema == "" {
+		opts.Schema = kubernetesSchema
 	}
+	if opts.KubeClient == kubernetes.Interface(nil) {
+		kubeCfg, err := rest.InClusterConfig()
+		if err != nil {
+			return nil, err
+		}
+		opts.KubeClient, err = kubernetes.NewForConfig(kubeCfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if opts.PromRegister == prometheus.Registerer(nil) {
+		opts.PromRegister = prometheus.DefaultRegisterer
+	}
+
+	endpointsGauge := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kuberesolver_endpoints_total",
+			Help: "The number of endpoints for a given target",
+		},
+		[]string{"target"},
+	)
+	// Will fail for duplicate registration calls. Should only happen in tests.
+	_ = opts.PromRegister.Register(endpointsGauge)
+
+	addressesGauge := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kuberesolver_addresses_total",
+			Help: "The number of addresses for a given target",
+		},
+		[]string{"target"},
+	)
+	// Will fail for duplicate registration calls. Should only happen in tests.
+	_ = opts.PromRegister.Register(addressesGauge)
+
+	return &kubeBuilder{
+		k8sClient:          opts.KubeClient,
+		schema:             opts.Schema,
+		endpointsForTarget: endpointsGauge,
+		addressesForTarget: addressesGauge,
+	}, nil
 }
 
 type kubeBuilder struct {
-	k8sClient K8sClient
-	schema    string
+	k8sClient          kubernetes.Interface
+	schema             string
+	endpointsForTarget *prometheus.GaugeVec
+	addressesForTarget *prometheus.GaugeVec
 }
 
 func splitServicePortNamespace(hpn string) (service, port, namespace string) {
@@ -132,14 +187,7 @@ func parseResolverTarget(target resolver.Target) (targetInfo, error) {
 //
 // gRPC dial calls Build synchronously, and fails if the returned error is
 // not nil.
-func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
-	if b.k8sClient == nil {
-		if cl, err := NewInClusterK8sClient(); err == nil {
-			b.k8sClient = cl
-		} else {
-			return nil, err
-		}
-	}
+func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, _ resolver.BuildOptions) (resolver.Resolver, error) {
 	ti, err := parseResolverTarget(target)
 	if err != nil {
 		return nil, err
@@ -153,21 +201,55 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		ctx:       ctx,
 		cancel:    cancel,
 		cc:        cc,
-		rn:        make(chan struct{}, 1),
 		k8sClient: b.k8sClient,
 		t:         time.NewTimer(defaultFreq),
 		freq:      defaultFreq,
-
-		endpoints: endpointsForTarget.WithLabelValues(ti.String()),
-		addresses: addressesForTarget.WithLabelValues(ti.String()),
+		endpoints: b.endpointsForTarget.WithLabelValues(ti.String()),
+		addresses: b.addressesForTarget.WithLabelValues(ti.String()),
 	}
-	go until(func() {
-		r.wg.Add(1)
-		err := r.watch()
-		if err != nil && err != io.EOF {
-			grpclog.Errorf("kuberesolver: watching ended with error='%v', will reconnect again", err)
-		}
-	}, time.Second, time.Second*30, ctx.Done())
+
+	factory := informers.NewSharedInformerFactoryWithOptions(b.k8sClient, resyncDisabled,
+		informers.WithNamespace(r.target.serviceNamespace),
+		informers.WithTweakListOptions(func(opts *metav1.ListOptions) {
+			// Watching a single Endpoints object.
+			opts.FieldSelector = fields.OneTermEqualSelector(
+				metav1.ObjectNameField, r.target.serviceName).String()
+		}))
+	informer := factory.Core().V1().Endpoints().Informer()
+	reg, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			e, ok := obj.(*corev1.Endpoints)
+			if !ok {
+				return
+			}
+			r.handleEndpointsUpdate(e)
+		},
+		UpdateFunc: func(_, newObj any) {
+			e, ok := newObj.(*corev1.Endpoints)
+			if !ok {
+				return
+			}
+			r.handleEndpointsUpdate(e)
+		},
+		DeleteFunc: func(obj any) {
+			r.handleEndpointsUpdate(nil)
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if reg.HasSynced() {
+		return nil, fmt.Errorf("kuberesolve cannot sync with kubeinformer for target: %s", target.URL.String())
+	}
+
+	r.wg.Add(1)
+	go func() {
+		defer func() {
+			handleCrash()
+			r.wg.Done()
+		}()
+		informer.Run(r.ctx.Done())
+	}()
 	return r, nil
 }
 
@@ -178,13 +260,11 @@ func (b *kubeBuilder) Scheme() string {
 }
 
 type kResolver struct {
-	target targetInfo
-	ctx    context.Context
-	cancel context.CancelFunc
-	cc     resolver.ClientConn
-	// rn channel is used by ResolveNow() to force an immediate resolution of the target.
-	rn        chan struct{}
-	k8sClient K8sClient
+	target    targetInfo
+	ctx       context.Context
+	cancel    context.CancelFunc
+	cc        resolver.ClientConn
+	k8sClient kubernetes.Interface
 	// wg is used to enforce Close() to return after the watcher() goroutine has finished.
 	wg   sync.WaitGroup
 	t    *time.Timer
@@ -194,14 +274,8 @@ type kResolver struct {
 	addresses prometheus.Gauge
 }
 
-// ResolveNow will be called by gRPC to try to resolve the target name again.
-// It's just a hint, resolver can ignore this if it's not necessary.
-func (k *kResolver) ResolveNow(resolver.ResolveNowOptions) {
-	select {
-	case k.rn <- struct{}{}:
-	default:
-	}
-}
+// ResolveNow is a no-op in this implementation.
+func (k *kResolver) ResolveNow(resolver.ResolveNowOptions) {}
 
 // Close closes the resolver.
 func (k *kResolver) Close() {
@@ -209,82 +283,47 @@ func (k *kResolver) Close() {
 	k.wg.Wait()
 }
 
-func (k *kResolver) makeAddresses(e Endpoints) ([]resolver.Address, string) {
+func (k *kResolver) makeAddresses(e *corev1.Endpoints) []resolver.Address {
 	var newAddrs []resolver.Address
+	if e == nil {
+		// Handles the deletion case.
+		return newAddrs
+	}
 	for _, subset := range e.Subsets {
-		port := ""
-		if k.target.useFirstPort {
-			port = strconv.Itoa(subset.Ports[0].Port)
-		} else if k.target.resolveByPortName {
-			for _, p := range subset.Ports {
-				if p.Name == k.target.port {
-					port = strconv.Itoa(p.Port)
-					break
-				}
-			}
-		} else {
-			port = k.target.port
-		}
-
-		if len(port) == 0 {
-			port = strconv.Itoa(subset.Ports[0].Port)
-		}
-
+		port := k.extractPortFromSubset(&subset)
 		for _, address := range subset.Addresses {
 			newAddrs = append(newAddrs, resolver.Address{
-				Type:       resolver.Backend,
 				Addr:       net.JoinHostPort(address.IP, port),
-				ServerName: fmt.Sprintf("%s.%s", k.target.serviceName, k.target.serviceNamespace),
-				Metadata:   nil,
+				ServerName: fmt.Sprint(k.target.serviceName, ".", k.target.serviceNamespace),
 			})
 		}
 	}
-	return newAddrs, ""
+	return newAddrs
 }
 
-func (k *kResolver) handle(e Endpoints) {
-	result, _ := k.makeAddresses(e)
-	//	k.cc.NewServiceConfig(sc)
-	if len(result) > 0 {
-		k.cc.NewAddress(result)
+func (k *kResolver) extractPortFromSubset(subset *corev1.EndpointSubset) string {
+	if k.target.useFirstPort {
+		return strconv.Itoa(int(subset.Ports[0].Port))
 	}
-
-	k.endpoints.Set(float64(len(e.Subsets)))
-	k.addresses.Set(float64(len(result)))
-}
-
-func (k *kResolver) resolve() {
-	e, err := getEndpoints(k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
-	if err == nil {
-		k.handle(e)
-	} else {
-		grpclog.Errorf("kuberesolver: lookup endpoints failed: %v", err)
-	}
-	// Next lookup should happen after an interval defined by k.freq.
-	k.t.Reset(k.freq)
-}
-
-func (k *kResolver) watch() error {
-	defer k.wg.Done()
-	// watch endpoints lists existing endpoints at start
-	sw, err := watchEndpoints(k.ctx, k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
-	if err != nil {
-		return err
-	}
-	for {
-		select {
-		case <-k.ctx.Done():
-			return nil
-		case <-k.t.C:
-			k.resolve()
-		case <-k.rn:
-			//k.resolve()
-		case up, hasMore := <-sw.ResultChan():
-			if hasMore {
-				k.handle(up.Object)
-			} else {
-				return nil
+	if k.target.resolveByPortName {
+		for _, p := range subset.Ports {
+			if p.Name == k.target.port {
+				return strconv.Itoa(int(p.Port))
 			}
 		}
 	}
+	if port := k.target.port; len(port) != 0 {
+		return port
+	}
+	return strconv.Itoa(int(subset.Ports[0].Port))
+}
+
+func (k *kResolver) handleEndpointsUpdate(e *corev1.Endpoints) {
+	addrs := k.makeAddresses(e)
+	if len(addrs) > 0 {
+		// TODO: migrate to UpdateState.
+		k.cc.NewAddress(addrs)
+	}
+	k.endpoints.Set(float64(len(e.Subsets)))
+	k.addresses.Set(float64(len(addrs)))
 }
