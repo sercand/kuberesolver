@@ -41,7 +41,6 @@ func (fc *fakeConn) NewAddress(addresses []resolver.Address) {
 		fc.found = append(fc.found, a.Addr)
 		fmt.Printf("%d, address: %s\n", i, a.Addr)
 		fmt.Printf("%d, servername: %s\n", i, a.ServerName)
-		fmt.Printf("%d, type: %+v\n", i, a.Type)
 	}
 	fc.cmp <- struct{}{}
 }
@@ -63,9 +62,9 @@ func TestBuilder(t *testing.T) {
 	if len(fc.found) == 0 {
 		t.Fatal("could not found endpoints")
 	}
-// 	fmt.Printf("ResolveNow \n")
-// 	rs.ResolveNow(resolver.ResolveNowOptions{})
-// 	<-fc.cmp
+	// 	fmt.Printf("ResolveNow \n")
+	// 	rs.ResolveNow(resolver.ResolveNowOptions{})
+	// 	<-fc.cmp
 
 }
 
