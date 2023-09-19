@@ -232,7 +232,6 @@ func (k *kResolver) makeAddresses(e Endpoints) ([]resolver.Address, string) {
 
 		for _, address := range subset.Addresses {
 			newAddrs = append(newAddrs, resolver.Address{
-				Type:       resolver.Backend,
 				Addr:       net.JoinHostPort(address.IP, port),
 				ServerName: fmt.Sprintf("%s.%s", k.target.serviceName, k.target.serviceNamespace),
 				Metadata:   nil,
