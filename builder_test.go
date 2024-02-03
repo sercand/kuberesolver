@@ -21,7 +21,13 @@ type fakeConn struct {
 	found []string
 }
 
-func (fc *fakeConn) UpdateState(resolver.State) error {
+func (fc *fakeConn) UpdateState(state resolver.State) error {
+	for i, a := range state.Addresses {
+		fc.found = append(fc.found, a.Addr)
+		fmt.Printf("%d, address: %s\n", i, a.Addr)
+		fmt.Printf("%d, servername: %s\n", i, a.ServerName)
+	}
+	fc.cmp <- struct{}{}
 	return nil
 }
 
@@ -37,12 +43,7 @@ func (fc *fakeConn) ParseServiceConfig(_ string) *serviceconfig.ParseResult {
 }
 
 func (fc *fakeConn) NewAddress(addresses []resolver.Address) {
-	for i, a := range addresses {
-		fc.found = append(fc.found, a.Addr)
-		fmt.Printf("%d, address: %s\n", i, a.Addr)
-		fmt.Printf("%d, servername: %s\n", i, a.ServerName)
-	}
-	fc.cmp <- struct{}{}
+	fmt.Printf("addresses: %s\n", addresses)
 }
 
 func (*fakeConn) NewServiceConfig(serviceConfig string) {
