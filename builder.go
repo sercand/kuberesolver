@@ -242,14 +242,15 @@ func (k *kResolver) makeAddresses(e Endpoints) ([]resolver.Address, string) {
 }
 
 func (k *kResolver) handle(e Endpoints) {
-	result, _ := k.makeAddresses(e)
-	//	k.cc.NewServiceConfig(sc)
-	if len(result) > 0 {
-		k.cc.NewAddress(result)
+	addrs, _ := k.makeAddresses(e)
+	if len(addrs) > 0 {
+		k.cc.UpdateState(resolver.State{
+			Addresses: addrs,
+		})
 	}
 
 	k.endpoints.Set(float64(len(e.Subsets)))
-	k.addresses.Set(float64(len(result)))
+	k.addresses.Set(float64(len(addrs)))
 }
 
 func (k *kResolver) resolve() {
