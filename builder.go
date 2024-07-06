@@ -36,6 +36,13 @@ var (
 		},
 		[]string{"target"},
 	)
+	lastResolveMetric = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kuberesolver_last_resolve_timestamp",
+			Help: "Time in seconds since the last resolve request to the peer list",
+		},
+		[]string{"target"},
+	)
 )
 
 type targetInfo struct {
@@ -158,8 +165,9 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		t:         time.NewTimer(defaultFreq),
 		freq:      defaultFreq,
 
-		endpoints: endpointsForTarget.WithLabelValues(ti.String()),
-		addresses: addressesForTarget.WithLabelValues(ti.String()),
+		endpoints:   endpointsForTarget.WithLabelValues(ti.String()),
+		addresses:   addressesForTarget.WithLabelValues(ti.String()),
+		lastResolve: lastResolveMetric.WithLabelValues(ti.String()),
 	}
 	go until(func() {
 		r.wg.Add(1)
@@ -190,8 +198,11 @@ type kResolver struct {
 	t    *time.Timer
 	freq time.Duration
 
-	endpoints prometheus.Gauge
-	addresses prometheus.Gauge
+	lastResolveTime time.Time
+
+	endpoints   prometheus.Gauge
+	addresses   prometheus.Gauge
+	lastResolve prometheus.Gauge
 }
 
 // ResolveNow will be called by gRPC to try to resolve the target name again.
@@ -247,6 +258,8 @@ func (k *kResolver) handle(e Endpoints) {
 		k.cc.UpdateState(resolver.State{
 			Addresses: addrs,
 		})
+		k.lastResolveTime = time.Now()
+		k.lastResolve.Set(0)
 	}
 
 	k.endpoints.Set(float64(len(e.Subsets)))
@@ -283,6 +296,7 @@ func (k *kResolver) watch() error {
 			if hasMore {
 				k.handle(up.Object)
 			} else {
+				k.lastResolve.Set(float64(time.Since(k.lastResolveTime).Seconds()))
 				return nil
 			}
 		}
