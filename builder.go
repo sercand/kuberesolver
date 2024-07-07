@@ -153,7 +153,6 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		ctx:       ctx,
 		cancel:    cancel,
 		cc:        cc,
-		rn:        make(chan struct{}, 1),
 		k8sClient: b.k8sClient,
 		t:         time.NewTimer(defaultFreq),
 		freq:      defaultFreq,
@@ -178,12 +177,10 @@ func (b *kubeBuilder) Scheme() string {
 }
 
 type kResolver struct {
-	target targetInfo
-	ctx    context.Context
-	cancel context.CancelFunc
-	cc     resolver.ClientConn
-	// rn channel is used by ResolveNow() to force an immediate resolution of the target.
-	rn        chan struct{}
+	target    targetInfo
+	ctx       context.Context
+	cancel    context.CancelFunc
+	cc        resolver.ClientConn
 	k8sClient K8sClient
 	// wg is used to enforce Close() to return after the watcher() goroutine has finished.
 	wg   sync.WaitGroup
@@ -197,10 +194,7 @@ type kResolver struct {
 // ResolveNow will be called by gRPC to try to resolve the target name again.
 // It's just a hint, resolver can ignore this if it's not necessary.
 func (k *kResolver) ResolveNow(resolver.ResolveNowOptions) {
-	select {
-	case k.rn <- struct{}{}:
-	default:
-	}
+	// ignore
 }
 
 // Close closes the resolver.
@@ -277,8 +271,6 @@ func (k *kResolver) watch() error {
 			return nil
 		case <-k.t.C:
 			k.resolve()
-		case <-k.rn:
-			//k.resolve()
 		case up, hasMore := <-sw.ResultChan():
 			if hasMore {
 				k.handle(up.Object)
