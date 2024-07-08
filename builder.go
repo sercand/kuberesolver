@@ -39,6 +39,7 @@ var (
 )
 
 type targetInfo struct {
+	scheme            string
 	serviceName       string
 	serviceNamespace  string
 	port              string
@@ -47,7 +48,11 @@ type targetInfo struct {
 }
 
 func (ti targetInfo) String() string {
-	return fmt.Sprintf("kubernetes://%s/%s:%s", ti.serviceNamespace, ti.serviceName, ti.port)
+	if ti.scheme != "" {
+		return fmt.Sprintf("%s://%s/%s:%s", ti.scheme, ti.serviceNamespace, ti.serviceName, ti.port)
+	} else {
+		return fmt.Sprintf("kubernetes://%s/%s:%s", ti.serviceNamespace, ti.serviceName, ti.port)
+	}
 }
 
 // RegisterInCluster registers the kuberesolver builder to grpc with kubernetes schema
@@ -120,6 +125,7 @@ func parseResolverTarget(target resolver.Target) (targetInfo, error) {
 	}
 
 	return targetInfo{
+		scheme:            target.URL.Scheme,
 		serviceName:       service,
 		serviceNamespace:  namespace,
 		port:              port,
