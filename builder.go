@@ -284,6 +284,7 @@ func (k *kResolver) watch() error {
 	if err != nil {
 		return err
 	}
+	ticker := time.NewTicker(time.Second * 30)
 	for {
 		select {
 		case <-k.ctx.Done():
@@ -296,9 +297,11 @@ func (k *kResolver) watch() error {
 			if hasMore {
 				k.handle(up.Object)
 			} else {
-				k.lastResolve.Set(float64(time.Since(k.lastResolveTime).Seconds()))
 				return nil
 			}
+		case <-ticker.C:
+			k.lastResolve.Set(float64(time.Since(k.lastResolveTime).Seconds()))
+			ticker.Reset(time.Second * 30)
 		}
 	}
 }
