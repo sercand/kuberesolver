@@ -165,6 +165,8 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		t:         time.NewTimer(defaultFreq),
 		freq:      defaultFreq,
 
+		tickerFreq: time.Second * 5,
+
 		endpoints:  endpointsForTarget.WithLabelValues(ti.String()),
 		addresses:  addressesForTarget.WithLabelValues(ti.String()),
 		resolveLag: clientResolveLag.WithLabelValues(ti.String()),
@@ -199,6 +201,7 @@ type kResolver struct {
 	freq time.Duration
 
 	lastResolveTime time.Time
+	tickerFreq      time.Duration
 
 	endpoints  prometheus.Gauge
 	addresses  prometheus.Gauge
@@ -284,7 +287,7 @@ func (k *kResolver) watch() error {
 	if err != nil {
 		return err
 	}
-	ticker := time.NewTicker(time.Second * 30)
+	ticker := time.NewTicker(k.tickerFreq)
 	for {
 		select {
 		case <-k.ctx.Done():
@@ -301,7 +304,7 @@ func (k *kResolver) watch() error {
 			}
 		case <-ticker.C:
 			k.resolveLag.Set(float64(time.Since(k.lastResolveTime).Seconds()))
-			ticker.Reset(time.Second * 30)
+			ticker.Reset(k.tickerFreq)
 		}
 	}
 }
