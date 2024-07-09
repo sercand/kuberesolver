@@ -36,10 +36,10 @@ var (
 		},
 		[]string{"target"},
 	)
-	clientResolveLag = promauto.NewGaugeVec(
+	clientLastUpdate = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "kuberesolver_last_resolve_seconds",
-			Help: "Time in seconds since the last resolve request to the peer list",
+			Name: "kuberesolver_client_last_update",
+			Help: "The last time the resolver client was updated",
 		},
 		[]string{"target"},
 	)
@@ -164,11 +164,9 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		t:         time.NewTimer(defaultFreq),
 		freq:      defaultFreq,
 
-		tickerFreq: time.Second * 5,
-
-		endpoints:  endpointsForTarget.WithLabelValues(ti.String()),
-		addresses:  addressesForTarget.WithLabelValues(ti.String()),
-		resolveLag: clientResolveLag.WithLabelValues(ti.String()),
+		endpoints:      endpointsForTarget.WithLabelValues(ti.String()),
+		addresses:      addressesForTarget.WithLabelValues(ti.String()),
+		lastUpdateUnix: clientLastUpdate.WithLabelValues(ti.String()),
 	}
 	go until(func() {
 		r.wg.Add(1)
@@ -197,12 +195,10 @@ type kResolver struct {
 	t    *time.Timer
 	freq time.Duration
 
-	lastResolveTime time.Time
-	tickerFreq      time.Duration
-
-	endpoints  prometheus.Gauge
-	addresses  prometheus.Gauge
-	resolveLag prometheus.Gauge
+	endpoints prometheus.Gauge
+	addresses prometheus.Gauge
+	// lastUpdateUnix is the timestamp of the last successful update to the resolver client
+	lastUpdateUnix prometheus.Gauge
 }
 
 // ResolveNow will be called by gRPC to try to resolve the target name again.
@@ -255,8 +251,7 @@ func (k *kResolver) handle(e Endpoints) {
 		k.cc.UpdateState(resolver.State{
 			Addresses: addrs,
 		})
-		k.lastResolveTime = time.Now()
-		k.resolveLag.Set(0)
+		k.lastUpdateUnix.Set(float64(time.Now().Unix()))
 	}
 
 	k.endpoints.Set(float64(len(e.Subsets)))
@@ -281,7 +276,6 @@ func (k *kResolver) watch() error {
 	if err != nil {
 		return err
 	}
-	ticker := time.NewTicker(k.tickerFreq)
 	for {
 		select {
 		case <-k.ctx.Done():
@@ -294,9 +288,6 @@ func (k *kResolver) watch() error {
 			} else {
 				return nil
 			}
-		case <-ticker.C:
-			k.resolveLag.Set(float64(time.Since(k.lastResolveTime).Seconds()))
-			ticker.Reset(k.tickerFreq)
 		}
 	}
 }

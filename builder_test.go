@@ -85,16 +85,12 @@ func TestResolveLag(t *testing.T) {
 	if len(fc.found) == 0 {
 		t.Fatal("could not found endpoints")
 	}
-	time.Sleep(6 * time.Second) // wait for the ticker to update the resolveLag
+	time.Sleep(2 * time.Second)
 
 	kresolver := rs.(*kResolver)
-	resolveLagValue := testutil.ToFloat64(kresolver.resolveLag)
-	assert.Greater(t, resolveLagValue, 0.0)
-	t.Logf("resolver lag: %v s", resolveLagValue)
-
-	// rs.ResolveNow(resolver.ResolveNowOptions{})
-	// <-fc.cmp
-	// assert.Greater(t, resolveLagValue, testutil.ToFloat64(kresolver.resolveLag))
+	clientResolveLag := testutil.ToFloat64(kresolver.lastUpdateUnix) - float64(time.Now().Unix())
+	assert.Less(t, clientResolveLag, 0.0)
+	t.Logf("client resolver lag: %v s", -clientResolveLag)
 }
 
 // copied from grpc package to test parsing endpoints
