@@ -6,7 +6,10 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/serviceconfig"
 )
@@ -67,6 +70,27 @@ func TestBuilder(t *testing.T) {
 	// 	rs.ResolveNow(resolver.ResolveNowOptions{})
 	// 	<-fc.cmp
 
+}
+
+func TestResolveLag(t *testing.T) {
+	bl := newTestBuilder()
+	fc := &fakeConn{
+		cmp: make(chan struct{}),
+	}
+	rs, err := bl.Build(parseTarget("kubernetes://kube-dns.kube-system:53"), fc, resolver.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-fc.cmp
+	if len(fc.found) == 0 {
+		t.Fatal("could not found endpoints")
+	}
+	time.Sleep(2 * time.Second)
+
+	kresolver := rs.(*kResolver)
+	clientResolveLag := testutil.ToFloat64(kresolver.lastUpdateUnix) - float64(time.Now().Unix())
+	assert.Less(t, clientResolveLag, 0.0)
+	t.Logf("client resolver lag: %v s", -clientResolveLag)
 }
 
 // copied from grpc package to test parsing endpoints

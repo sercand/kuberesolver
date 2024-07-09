@@ -36,6 +36,13 @@ var (
 		},
 		[]string{"target"},
 	)
+	clientLastUpdate = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kuberesolver_client_last_update",
+			Help: "The last time the resolver client was updated",
+		},
+		[]string{"target"},
+	)
 )
 
 type targetInfo struct {
@@ -163,8 +170,9 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		t:         time.NewTimer(defaultFreq),
 		freq:      defaultFreq,
 
-		endpoints: endpointsForTarget.WithLabelValues(ti.String()),
-		addresses: addressesForTarget.WithLabelValues(ti.String()),
+		endpoints:      endpointsForTarget.WithLabelValues(ti.String()),
+		addresses:      addressesForTarget.WithLabelValues(ti.String()),
+		lastUpdateUnix: clientLastUpdate.WithLabelValues(ti.String()),
 	}
 	go until(func() {
 		r.wg.Add(1)
@@ -195,6 +203,8 @@ type kResolver struct {
 
 	endpoints prometheus.Gauge
 	addresses prometheus.Gauge
+	// lastUpdateUnix is the timestamp of the last successful update to the resolver client
+	lastUpdateUnix prometheus.Gauge
 }
 
 // ResolveNow will be called by gRPC to try to resolve the target name again.
@@ -247,6 +257,7 @@ func (k *kResolver) handle(e Endpoints) {
 		k.cc.UpdateState(resolver.State{
 			Addresses: addrs,
 		})
+		k.lastUpdateUnix.Set(float64(time.Now().Unix()))
 	}
 
 	k.endpoints.Set(float64(len(e.Subsets)))
