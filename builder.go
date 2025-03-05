@@ -219,39 +219,41 @@ func (k *kResolver) Close() {
 	k.wg.Wait()
 }
 
-func (k *kResolver) makeAddresses(e Endpoints) ([]resolver.Address, string) {
-	var newAddrs []resolver.Address
-	for _, subset := range e.Subsets {
-		port := ""
+func (k *kResolver) makeAddresses(e EndpointSlice) ([]resolver.Address, string) {
+	port := k.target.port
+	for _, p := range e.Ports {
 		if k.target.useFirstPort {
-			port = strconv.Itoa(subset.Ports[0].Port)
-		} else if k.target.resolveByPortName {
-			for _, p := range subset.Ports {
-				if p.Name == k.target.port {
-					port = strconv.Itoa(p.Port)
-					break
-				}
-			}
-		} else {
-			port = k.target.port
+			port = strconv.Itoa(p.Port)
+			break
+		} else if k.target.resolveByPortName && p.Name == k.target.port {
+			port = strconv.Itoa(p.Port)
+			break
+		}
+	}
+
+	if len(port) == 0 {
+		port = strconv.Itoa(e.Ports[0].Port)
+	}
+
+	var newAddrs []resolver.Address
+	for _, endpoint := range e.Endpoints {
+		if endpoint.Conditions.Ready == nil || !*endpoint.Conditions.Ready {
+			continue
 		}
 
-		if len(port) == 0 {
-			port = strconv.Itoa(subset.Ports[0].Port)
-		}
-
-		for _, address := range subset.Addresses {
+		for _, address := range endpoint.Addresses {
 			newAddrs = append(newAddrs, resolver.Address{
-				Addr:       net.JoinHostPort(address.IP, port),
+				Addr:       net.JoinHostPort(address, port),
 				ServerName: fmt.Sprintf("%s.%s", k.target.serviceName, k.target.serviceNamespace),
 				Metadata:   nil,
 			})
 		}
 	}
+
 	return newAddrs, ""
 }
 
-func (k *kResolver) handle(e Endpoints) {
+func (k *kResolver) handle(e EndpointSlice) {
 	addrs, _ := k.makeAddresses(e)
 	if len(addrs) > 0 {
 		k.cc.UpdateState(resolver.State{
@@ -260,14 +262,16 @@ func (k *kResolver) handle(e Endpoints) {
 		k.lastUpdateUnix.Set(float64(time.Now().Unix()))
 	}
 
-	k.endpoints.Set(float64(len(e.Subsets)))
+	k.endpoints.Set(float64(len(e.Endpoints)))
 	k.addresses.Set(float64(len(addrs)))
 }
 
 func (k *kResolver) resolve() {
-	e, err := getEndpoints(k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
+	list, err := getEndpointSliceList(k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
 	if err == nil {
-		k.handle(e)
+		for _, e := range list.Items {
+			k.handle(e)
+		}
 	} else {
 		grpclog.Errorf("kuberesolver: lookup endpoints failed: %v", err)
 	}
@@ -278,7 +282,7 @@ func (k *kResolver) resolve() {
 func (k *kResolver) watch() error {
 	defer k.wg.Done()
 	// watch endpoints lists existing endpoints at start
-	sw, err := watchEndpoints(k.ctx, k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
+	sw, err := watchEndpointSlice(k.ctx, k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
 	if err != nil {
 		return err
 	}
