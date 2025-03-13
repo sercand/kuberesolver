@@ -60,7 +60,7 @@ Since it provides and updates all available service endpoints, together with a c
 
 ### RBAC
 
-You need give `GET` and `WATCH` access to the `endpoints` if you are using RBAC in your cluster.
+You need give `GET` and `WATCH` access to the `endpointslices` if you are using RBAC in your cluster.
 
 
 ### Using With TLS
