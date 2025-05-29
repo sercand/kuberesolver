@@ -5,7 +5,7 @@ go 1.22.0
 toolchain go1.24.1
 
 require (
-	github.com/fsnotify/fsnotify v1.6.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/prometheus/client_golang v1.15.1
 	github.com/stretchr/testify v1.9.0
 	google.golang.org/grpc v1.71.0
