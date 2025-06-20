@@ -174,8 +174,8 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		addresses:      addressesForTarget.WithLabelValues(ti.String()),
 		lastUpdateUnix: clientLastUpdate.WithLabelValues(ti.String()),
 	}
+	r.wg.Add(1)
 	go until(func() {
-		r.wg.Add(1)
 		err := r.watch()
 		if err != nil && err != io.EOF {
 			grpclog.Errorf("kuberesolver: watching ended with error='%v', will reconnect again", err)
