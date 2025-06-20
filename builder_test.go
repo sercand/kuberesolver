@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -69,7 +68,6 @@ func TestBuilder(t *testing.T) {
 	// 	fmt.Printf("ResolveNow \n")
 	// 	rs.ResolveNow(resolver.ResolveNowOptions{})
 	// 	<-fc.cmp
-
 }
 
 func TestResolveLag(t *testing.T) {
@@ -94,16 +92,6 @@ func TestResolveLag(t *testing.T) {
 }
 
 // copied from grpc package to test parsing endpoints
-
-// split2 returns the values from strings.SplitN(s, sep, 2).
-// If sep is not found, it returns ("", "", false) instead.
-func split2(s, sep string) (string, string, bool) {
-	spl := strings.SplitN(s, sep, 2)
-	if len(spl) < 2 {
-		return "", "", false
-	}
-	return spl[0], spl[1], true
-}
 
 func parseTarget(target string) resolver.Target {
 	u, err := url.Parse(target)
