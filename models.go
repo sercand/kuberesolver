@@ -20,6 +20,7 @@ type EndpointSliceList struct {
 }
 
 type EndpointSlice struct {
+	Name      string
 	Endpoints []Endpoint
 	Ports     []EndpointPort
 }
