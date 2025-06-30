@@ -16,17 +16,18 @@ type Event struct {
 }
 
 type EndpointSliceList struct {
-	Items []EndpointSlice
+	Items []EndpointSlice `json:"items"`
 }
 
 type EndpointSlice struct {
-	Endpoints []Endpoint
-	Ports     []EndpointPort
+	Metadata  Metadata       `json:"metadata"`  // Add metadata to track slice identity
+	Endpoints []Endpoint     `json:"endpoints"`
+	Ports     []EndpointPort `json:"ports"`
 }
 
 type Endpoint struct {
-	Addresses  []string
-	Conditions EndpointConditions
+	Addresses  []string           `json:"addresses"`
+	Conditions EndpointConditions `json:"conditions"`
 }
 
 type EndpointConditions struct {
@@ -41,6 +42,7 @@ type Metadata struct {
 	ResourceVersion string            `json:"resourceVersion"`
 	Labels          map[string]string `json:"labels"`
 }
+
 type EndpointPort struct {
 	Name string `json:"name"`
 	Port int    `json:"port"`
