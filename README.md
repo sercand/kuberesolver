@@ -11,14 +11,14 @@ It comes with a small ~250 LOC kubernetes client to find service endpoints. Ther
 // Import the module
 import "github.com/sercand/kuberesolver/v6"
 	
-// Register kuberesolver to grpc before calling grpc.Dial
+// Register kuberesolver to grpc before calling grpc.NewClient
 kuberesolver.RegisterInCluster()
 
 // it is same as
 resolver.Register(kuberesolver.NewBuilder(nil /*custom kubernetes client*/ , "kubernetes"))
 
 // if schema is 'kubernetes' then grpc will use kuberesolver to resolve addresses
-cc, err := grpc.Dial("kubernetes:///service.namespace:portname", opts...)
+cc, err := grpc.NewClient("kubernetes:///service.namespace:portname", opts...)
 ```
 
 An url can be one of the following, [grpc naming docs](https://github.com/grpc/grpc/blob/master/doc/naming.md)
@@ -44,10 +44,14 @@ Use `RegisterInClusterWithSchema(schema)` instead of `RegisterInCluster` on star
 
 ### Client Side Load Balancing
 
-You need to pass grpc.WithBalancerName option to grpc on dial: 
+You need to pass [loadBalancingPolicy](https://github.com/grpc/grpc-go/blob/master/examples/features/load_balancing/README.md) option to grpc when setting up a new client: 
 
 ```go
-grpc.DialContext(ctx,  "kubernetes:///service:grpc", grpc.WithBalancerName("round_robin"), grpc.WithInsecure())
+grpc.NewClient(
+    "kubernetes:///service:grpc", 
+    grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`),
+    grpc.WithTransportCredentials(insecure.NewCredentials()),
+)
 ```
 This will create subconnections for each available service endpoints.
 
