@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -42,15 +43,19 @@ func (kc *k8sClient) GetRequest(url string) (*http.Request, error) {
 	if !strings.HasPrefix(url, kc.host) {
 		url = fmt.Sprintf("%s/%s", kc.host, url)
 	}
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
+
 	kc.tokenLck.RLock()
 	defer kc.tokenLck.RUnlock()
+
 	if len(kc.token) > 0 {
 		req.Header.Set("Authorization", "Bearer "+kc.token)
 	}
+
 	return req, nil
 }
 
@@ -65,6 +70,7 @@ func (kc *k8sClient) Host() string {
 func (kc *k8sClient) setToken(token string) {
 	kc.tokenLck.Lock()
 	defer kc.tokenLck.Unlock()
+
 	kc.token = token
 }
 
@@ -74,14 +80,17 @@ func NewInClusterK8sClient() (K8sClient, error) {
 	if len(host) == 0 || len(port) == 0 {
 		return nil, fmt.Errorf("unable to load in-cluster configuration, KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined")
 	}
+
 	token, err := os.ReadFile(serviceAccountToken)
 	if err != nil {
 		return nil, err
 	}
+
 	ca, err := os.ReadFile(serviceAccountCACert)
 	if err != nil {
 		return nil, err
 	}
+
 	certPool := x509.NewCertPool()
 	certPool.AppendCertsFromPEM(ca)
 	transport := &http.Transport{TLSClientConfig: &tls.Config{
@@ -113,14 +122,16 @@ func NewInClusterK8sClient() (K8sClient, error) {
 				// original configmap file is removed
 				if event.Op.Has(fsnotify.Remove) || event.Op.Has(fsnotify.Chmod) {
 					// remove watcher since the file is removed
-					watcher.Remove(event.Name)
+					_ = watcher.Remove(event.Name)
 					// add a new watcher pointing to the new symlink/file
-					watcher.Add(serviceAccountToken)
+					_ = watcher.Add(serviceAccountToken)
+
 					token, err := os.ReadFile(serviceAccountToken)
 					if err == nil {
 						client.setToken(string(token))
 					}
 				}
+
 				if event.Has(fsnotify.Write) {
 					token, err := os.ReadFile(serviceAccountToken)
 					if err == nil {
@@ -158,20 +169,27 @@ func getEndpointSliceList(client K8sClient, namespace, targetName string) (Endpo
 	if err != nil {
 		return EndpointSliceList{}, err
 	}
+
 	req, err := client.GetRequest(u.String())
 	if err != nil {
 		return EndpointSliceList{}, err
 	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return EndpointSliceList{}, err
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
+
 	if resp.StatusCode != http.StatusOK {
 		return EndpointSliceList{}, fmt.Errorf("invalid response code %d for service %s in namespace %s", resp.StatusCode, targetName, namespace)
 	}
+
 	result := EndpointSliceList{}
 	err = json.NewDecoder(resp.Body).Decode(&result)
+
 	return result, err
 }
 
@@ -181,19 +199,27 @@ func watchEndpointSlice(ctx context.Context, client K8sClient, namespace, target
 	if err != nil {
 		return nil, err
 	}
+
 	req, err := client.GetRequest(u.String())
 	if err != nil {
 		return nil, err
 	}
+
 	req = req.WithContext(ctx)
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
+
 	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
+		defer func(Body io.ReadCloser) {
+			_ = Body.Close()
+		}(resp.Body)
+
 		return nil, fmt.Errorf("invalid response code %d for service %s in namespace %s", resp.StatusCode, targetName, namespace)
 	}
+
 	return newStreamWatcher(resp.Body), nil
 }
 
@@ -202,5 +228,6 @@ func getCurrentNamespaceOrDefault() string {
 	if err != nil {
 		return defaultNamespace
 	}
+
 	return string(ns)
 }

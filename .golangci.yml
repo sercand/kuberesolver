@@ -1,0 +1,37 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - contextcheck
+    - copyloopvar
+    - decorder
+    - exhaustive
+    - exptostd
+    - fatcontext
+    - gocheckcompilerdirectives
+    - goconst
+    - gocyclo
+    - importas
+    - predeclared
+    - reassign
+    - recvcheck
+    - tagalign
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - whitespace
+    - wsl_v5
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

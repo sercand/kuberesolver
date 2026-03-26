@@ -25,7 +25,9 @@ func isKubeProxyAvailable() bool {
 	if err != nil {
 		return false
 	}
+
 	_ = conn.Close()
+
 	return true
 }
 
@@ -33,6 +35,7 @@ func isKubeProxyAvailable() bool {
 // responses for both the watch and list API paths.
 func newMockKubeServer(t *testing.T) *httptest.Server {
 	t.Helper()
+
 	ready := true
 	fakeSlice := EndpointSlice{
 		Endpoints: []Endpoint{
@@ -63,6 +66,7 @@ func newMockKubeServer(t *testing.T) *httptest.Server {
 				t.Logf("mock server: failed to encode watch event: %v", err)
 				return
 			}
+
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
 			}
@@ -71,6 +75,7 @@ func newMockKubeServer(t *testing.T) *httptest.Server {
 		} else {
 			// List endpoint
 			w.Header().Set("Content-Type", "application/json")
+
 			list := EndpointSliceList{
 				Items: []EndpointSlice{fakeSlice},
 			}
@@ -84,12 +89,15 @@ func newMockKubeServer(t *testing.T) *httptest.Server {
 // falls back to a local mock server otherwise.
 func getTestAPIURL(t *testing.T) (apiURL string, cleanup func()) {
 	t.Helper()
+
 	if isKubeProxyAvailable() {
 		t.Log("Using live Kubernetes API proxy at http://127.0.0.1:8001")
 		return "http://127.0.0.1:8001", func() {}
 	}
+
 	t.Log("Kubernetes API proxy not available, using mock server")
 	srv := newMockKubeServer(t)
+
 	return srv.URL, srv.Close
 }
 
@@ -104,7 +112,9 @@ func (fc *fakeConn) UpdateState(state resolver.State) error {
 		fmt.Printf("%d, address: %s\n", i, a.Addr)
 		fmt.Printf("%d, servername: %s\n", i, a.ServerName)
 	}
+
 	fc.cmp <- struct{}{}
+
 	return nil
 }
 
@@ -136,6 +146,7 @@ func TestBuilder(t *testing.T) {
 	fc := &fakeConn{
 		cmp: make(chan struct{}),
 	}
+
 	rs, err := bl.Build(parseTarget("kubernetes://kube-dns.kube-system:53"), fc, resolver.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -143,6 +154,7 @@ func TestBuilder(t *testing.T) {
 	defer rs.Close()
 
 	<-fc.cmp
+
 	if len(fc.found) == 0 {
 		t.Fatal("could not found endpoints")
 	}
@@ -157,6 +169,7 @@ func TestResolveLag(t *testing.T) {
 	fc := &fakeConn{
 		cmp: make(chan struct{}),
 	}
+
 	rs, err := bl.Build(parseTarget("kubernetes://kube-dns.kube-system:53"), fc, resolver.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -164,9 +177,11 @@ func TestResolveLag(t *testing.T) {
 	defer rs.Close()
 
 	<-fc.cmp
+
 	if len(fc.found) == 0 {
 		t.Fatal("could not found endpoints")
 	}
+
 	time.Sleep(2 * time.Second)
 
 	kresolver := rs.(*kResolver)
@@ -216,10 +231,12 @@ func TestParseResolverTarget(t *testing.T) {
 			t.Errorf("case %d: want error but got nil", i)
 			continue
 		}
+
 		if err != nil && !test.err {
 			t.Errorf("case %d: got '%v' error but don't want an error", i, err)
 			continue
 		}
+
 		if got != test.want {
 			t.Errorf("case %d parseResolverTarget(%q) = %+v, want %+v", i, &test.target.URL, got, test.want)
 		}
@@ -255,10 +272,12 @@ func TestParseTargets(t *testing.T) {
 			t.Errorf("case %d: want error but got nil", i)
 			continue
 		}
+
 		if err != nil && !test.err {
 			t.Errorf("case %d:got '%v' error but don't want an error", i, err)
 			continue
 		}
+
 		if got != test.want {
 			t.Errorf("case %d: parseTarget(%q) = %+v, want %+v", i, test.target, got, test.want)
 		}

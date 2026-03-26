@@ -13,12 +13,16 @@ func until(f func(), initialPeriod, maxPeriod time.Duration, stopCh <-chan struc
 		return
 	default:
 	}
+
 	period := initialPeriod
+
 	for {
 		func() {
 			defer handleCrash()
+
 			f()
 		}()
+
 		select {
 		case <-stopCh:
 			return

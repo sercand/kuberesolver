@@ -40,6 +40,7 @@ func newStreamWatcher(r io.ReadCloser) watchInterface {
 		result:  make(chan Event),
 	}
 	go sw.receive()
+
 	return sw
 }
 
@@ -52,9 +53,10 @@ func (sw *streamWatcher) ResultChan() <-chan Event {
 func (sw *streamWatcher) Stop() {
 	sw.Lock()
 	defer sw.Unlock()
+
 	if !sw.stopped {
 		sw.stopped = true
-		sw.r.Close()
+		_ = sw.r.Close()
 	}
 }
 
@@ -62,6 +64,7 @@ func (sw *streamWatcher) Stop() {
 func (sw *streamWatcher) stopping() bool {
 	sw.Lock()
 	defer sw.Unlock()
+
 	return sw.stopped
 }
 
@@ -69,6 +72,7 @@ func (sw *streamWatcher) stopping() bool {
 func (sw *streamWatcher) receive() {
 	defer close(sw.result)
 	defer sw.Stop()
+
 	for {
 		obj, err := sw.Decode()
 		if err != nil {
@@ -76,6 +80,7 @@ func (sw *streamWatcher) receive() {
 			if sw.stopping() {
 				return
 			}
+
 			switch err {
 			case io.EOF:
 				// watch closed normally
@@ -86,8 +91,10 @@ func (sw *streamWatcher) receive() {
 			default:
 				grpclog.Infof("kuberesolver: Unable to decode an event from the watch stream: %v", err)
 			}
+
 			return
 		}
+
 		sw.result <- obj
 	}
 }
@@ -99,6 +106,7 @@ func (sw *streamWatcher) Decode() (Event, error) {
 	if err := sw.decoder.Decode(&got); err != nil {
 		return Event{}, err
 	}
+
 	switch got.Type {
 	case Added, Modified, Deleted, Error:
 		return got, nil
