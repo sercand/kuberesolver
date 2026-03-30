@@ -36,4 +36,3 @@ jobs:
 
       - name: Run tests
         run: go test -v -race -count=1 -timeout 120s ./...
-
