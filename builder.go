@@ -124,6 +124,7 @@ func parseResolverTarget(target resolver.Target) (targetInfo, error) {
 	}
 
 	resolveByPortName := false
+
 	useFirstPort := false
 	if port == "" {
 		useFirstPort = true
@@ -153,13 +154,16 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 			return nil, err
 		}
 	}
+
 	ti, err := parseResolverTarget(target)
 	if err != nil {
 		return nil, err
 	}
+
 	if ti.serviceNamespace == "" {
 		ti.serviceNamespace = getCurrentNamespaceOrDefault()
 	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &kResolver{
 		target:    ti,
@@ -175,12 +179,14 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		lastUpdateUnix: clientLastUpdate.WithLabelValues(ti.String()),
 	}
 	r.wg.Add(1)
+
 	go until(func() {
 		err := r.watch()
 		if err != nil && err != io.EOF {
 			grpclog.Errorf("kuberesolver: watching ended with error='%v', will reconnect again", err)
 		}
 	}, time.Second, time.Second*30, ctx.Done())
+
 	return r, nil
 }
 
@@ -236,6 +242,7 @@ func (k *kResolver) makeAddresses(e EndpointSlice) ([]resolver.Address, string) 
 	}
 
 	var newAddrs []resolver.Address
+
 	for _, endpoint := range e.Endpoints {
 		if endpoint.Conditions.Ready == nil || !*endpoint.Conditions.Ready {
 			continue
@@ -256,7 +263,7 @@ func (k *kResolver) makeAddresses(e EndpointSlice) ([]resolver.Address, string) 
 func (k *kResolver) handle(e EndpointSlice) {
 	addrs, _ := k.makeAddresses(e)
 	if len(addrs) > 0 {
-		k.cc.UpdateState(resolver.State{
+		_ = k.cc.UpdateState(resolver.State{
 			Addresses: addrs,
 		})
 		k.lastUpdateUnix.Set(float64(time.Now().Unix()))
@@ -286,6 +293,7 @@ func (k *kResolver) watch() error {
 	if err != nil {
 		return err
 	}
+
 	for {
 		select {
 		case <-k.ctx.Done():

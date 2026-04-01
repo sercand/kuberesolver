@@ -1,5 +1,9 @@
 # kuberesolver
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/sercand/kuberesolver/v6.svg)](https://pkg.go.dev/github.com/sercand/kuberesolver)
+[![Go Report Card](https://goreportcard.com/badge/github.com/sercand/kuberesolver/v6)](https://goreportcard.com/report/github.com/sercand/kuberesolver/v6)
+[![GitHub release](https://img.shields.io/github/v/release/sercand/kuberesolver)](https://github.com/sercand/kuberesolver/releases)
+
 A Grpc name resolver by using kubernetes API.
 It comes with a small ~250 LOC kubernetes client to find service endpoints. Therefore it won't bloat your binaries.
 

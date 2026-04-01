@@ -1,9 +1,14 @@
 package kuberesolver
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,9 +18,87 @@ import (
 	"google.golang.org/grpc/serviceconfig"
 )
 
-func newTestBuilder() resolver.Builder {
-	cl := NewInsecureK8sClient("http://127.0.0.1:8001")
-	return NewBuilder(cl, kubernetesSchema)
+// isKubeProxyAvailable checks whether a Kubernetes API proxy is reachable
+// at 127.0.0.1:8001.
+func isKubeProxyAvailable() bool {
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:8001", 2*time.Second)
+	if err != nil {
+		return false
+	}
+
+	_ = conn.Close()
+
+	return true
+}
+
+// newMockKubeServer starts a httptest.Server that returns fake EndpointSlice
+// responses for both the watch and list API paths.
+func newMockKubeServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	ready := true
+	fakeSlice := EndpointSlice{
+		Endpoints: []Endpoint{
+			{
+				Addresses: []string{"10.0.0.1", "10.0.0.2"},
+				Conditions: EndpointConditions{
+					Ready: &ready,
+				},
+			},
+		},
+		Ports: []EndpointPort{
+			{Name: "dns", Port: 53},
+		},
+	}
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/watch/") {
+			// Watch endpoint: stream a single ADDED event, then hold the
+			// connection open until the client disconnects.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+
+			event := Event{
+				Type:   Added,
+				Object: fakeSlice,
+			}
+			if err := json.NewEncoder(w).Encode(event); err != nil {
+				t.Logf("mock server: failed to encode watch event: %v", err)
+				return
+			}
+
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			// Block until the client closes the connection.
+			<-r.Context().Done()
+		} else {
+			// List endpoint
+			w.Header().Set("Content-Type", "application/json")
+
+			list := EndpointSliceList{
+				Items: []EndpointSlice{fakeSlice},
+			}
+			_ = json.NewEncoder(w).Encode(list)
+		}
+	}))
+}
+
+// getTestAPIURL returns the base URL to use for integration tests together
+// with a cleanup function. It prefers a live kubectl proxy when available and
+// falls back to a local mock server otherwise.
+func getTestAPIURL(t *testing.T) (apiURL string, cleanup func()) {
+	t.Helper()
+
+	if isKubeProxyAvailable() {
+		t.Log("Using live Kubernetes API proxy at http://127.0.0.1:8001")
+		return "http://127.0.0.1:8001", func() {}
+	}
+
+	t.Log("Kubernetes API proxy not available, using mock server")
+	srv := newMockKubeServer(t)
+
+	return srv.URL, srv.Close
 }
 
 type fakeConn struct {
@@ -29,7 +112,9 @@ func (fc *fakeConn) UpdateState(state resolver.State) error {
 		fmt.Printf("%d, address: %s\n", i, a.Addr)
 		fmt.Printf("%d, servername: %s\n", i, a.ServerName)
 	}
+
 	fc.cmp <- struct{}{}
+
 	return nil
 }
 
@@ -53,36 +138,50 @@ func (*fakeConn) NewServiceConfig(serviceConfig string) {
 }
 
 func TestBuilder(t *testing.T) {
-	bl := newTestBuilder()
-	fc := &fakeConn{
-		cmp: make(chan struct{}),
-	}
-	_, err := bl.Build(parseTarget("kubernetes://kube-dns.kube-system:53"), fc, resolver.BuildOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	<-fc.cmp
-	if len(fc.found) == 0 {
-		t.Fatal("could not found endpoints")
-	}
-	// 	fmt.Printf("ResolveNow \n")
-	// 	rs.ResolveNow(resolver.ResolveNowOptions{})
-	// 	<-fc.cmp
-}
+	apiURL, cleanup := getTestAPIURL(t)
+	defer cleanup()
 
-func TestResolveLag(t *testing.T) {
-	bl := newTestBuilder()
+	cl := NewInsecureK8sClient(apiURL)
+	bl := NewBuilder(cl, kubernetesSchema)
 	fc := &fakeConn{
 		cmp: make(chan struct{}),
 	}
+
 	rs, err := bl.Build(parseTarget("kubernetes://kube-dns.kube-system:53"), fc, resolver.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rs.Close()
+
 	<-fc.cmp
+
 	if len(fc.found) == 0 {
 		t.Fatal("could not found endpoints")
 	}
+}
+
+func TestResolveLag(t *testing.T) {
+	apiURL, cleanup := getTestAPIURL(t)
+	defer cleanup()
+
+	cl := NewInsecureK8sClient(apiURL)
+	bl := NewBuilder(cl, kubernetesSchema)
+	fc := &fakeConn{
+		cmp: make(chan struct{}),
+	}
+
+	rs, err := bl.Build(parseTarget("kubernetes://kube-dns.kube-system:53"), fc, resolver.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rs.Close()
+
+	<-fc.cmp
+
+	if len(fc.found) == 0 {
+		t.Fatal("could not found endpoints")
+	}
+
 	time.Sleep(2 * time.Second)
 
 	kresolver := rs.(*kResolver)
@@ -132,10 +231,12 @@ func TestParseResolverTarget(t *testing.T) {
 			t.Errorf("case %d: want error but got nil", i)
 			continue
 		}
+
 		if err != nil && !test.err {
 			t.Errorf("case %d: got '%v' error but don't want an error", i, err)
 			continue
 		}
+
 		if got != test.want {
 			t.Errorf("case %d parseResolverTarget(%q) = %+v, want %+v", i, &test.target.URL, got, test.want)
 		}
@@ -171,10 +272,12 @@ func TestParseTargets(t *testing.T) {
 			t.Errorf("case %d: want error but got nil", i)
 			continue
 		}
+
 		if err != nil && !test.err {
 			t.Errorf("case %d:got '%v' error but don't want an error", i, err)
 			continue
 		}
+
 		if got != test.want {
 			t.Errorf("case %d: parseTarget(%q) = %+v, want %+v", i, test.target, got, test.want)
 		}
