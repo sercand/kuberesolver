@@ -20,6 +20,7 @@ type EndpointSliceList struct {
 }
 
 type EndpointSlice struct {
+	Metadata  Metadata `json:"metadata"`
 	Endpoints []Endpoint
 	Ports     []EndpointPort
 }
